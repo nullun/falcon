@@ -68,9 +68,23 @@ void test_inner(size_t data_len) {
 	uint8_t pubkey[FALCON_DET1024_PUBKEY_SIZE];
 	uint8_t privkey[FALCON_DET1024_PRIVKEY_SIZE];
 	uint8_t sig[FALCON_DET1024_SIG_COMPRESSED_MAXSIZE];
+	uint8_t sig_legacy[FALCON_DET1024_SIG_COMPRESSED_MAXSIZE];
 	size_t sig_len;
+	size_t sig_len_legacy;
 	uint8_t expected_sig[FALCON_DET1024_SIG_COMPRESSED_MAXSIZE];
 	uint8_t data[data_len];
+	uint8_t keygen_workbuf[FALCON_DET1024_WORKBUF_KEYGEN_SIZE];
+	uint8_t sign_workbuf[FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE];
+	uint8_t verify_comp_workbuf[FALCON_DET1024_WORKBUF_VERIFY_COMPRESSED_SIZE];
+	uint8_t verify_ct_workbuf[FALCON_DET1024_WORKBUF_VERIFY_CT_SIZE];
+	uint8_t convert_workbuf[FALCON_DET1024_WORKBUF_CONVERT_TO_CT_SIZE];
+	uint8_t hash_workbuf[FALCON_DET1024_WORKBUF_HASH_TO_POINT_SIZE];
+	uint8_t s1_workbuf[FALCON_DET1024_WORKBUF_S1COEFFS_SIZE];
+	uint16_t h[FALCON_DET1024_LOGN ? (1 << FALCON_DET1024_LOGN) : 1];
+	uint16_t c[FALCON_DET1024_LOGN ? (1 << FALCON_DET1024_LOGN) : 1];
+	int16_t s2[FALCON_DET1024_LOGN ? (1 << FALCON_DET1024_LOGN) : 1];
+	int16_t s1[FALCON_DET1024_LOGN ? (1 << FALCON_DET1024_LOGN) : 1];
+	int16_t s1_legacy[FALCON_DET1024_LOGN ? (1 << FALCON_DET1024_LOGN) : 1];
 
 	memset(privkey, 0, FALCON_DET1024_PRIVKEY_SIZE);
 	memset(pubkey, 0, FALCON_DET1024_PUBKEY_SIZE);
@@ -85,14 +99,16 @@ void test_inner(size_t data_len) {
 	char key_seed[8+1];
 	sprintf(key_seed, "key-%04zu", data_len);
 	shake256_init_prng_from_seed(&key_rng, key_seed, 8);
-	int r = falcon_det1024_keygen(&key_rng, privkey, pubkey);
+	int r = falcon_det1024_keygen_with_workbuf(&key_rng, privkey, pubkey,
+		keygen_workbuf, sizeof keygen_workbuf);
 	if (r != 0) {
 		fprintf(stderr, "keygen (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
 	}
 
 	memset(sig, 0, FALCON_DET1024_SIG_COMPRESSED_MAXSIZE);
-	r = falcon_det1024_sign_compressed(sig, &sig_len, privkey, data, data_len);
+	r = falcon_det1024_sign_compressed_with_workbuf(sig, &sig_len, privkey,
+		data, data_len, sign_workbuf, sizeof sign_workbuf);
 	if (r != 0) {
 		fprintf(stderr, "sign_compressed (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
@@ -104,13 +120,15 @@ void test_inner(size_t data_len) {
 		exit(EXIT_FAILURE);
 	}
 
-	r = falcon_det1024_verify_compressed(sig, sig_len, pubkey, data, data_len);
+	r = falcon_det1024_verify_compressed_with_workbuf(sig, sig_len, pubkey,
+		data, data_len, verify_comp_workbuf, sizeof verify_comp_workbuf);
 	if (r != 0) {
 		fprintf(stderr, "verify_compressed (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
 	}
 
-	r = falcon_det1024_convert_compressed_to_ct(sigs_ct[data_len], sig, sig_len);
+	r = falcon_det1024_convert_compressed_to_ct_with_workbuf(sigs_ct[data_len],
+		sig, sig_len, convert_workbuf, sizeof convert_workbuf);
 	if (r != 0) {
 		fprintf(stderr, "conversion to CT format (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
@@ -122,10 +140,79 @@ void test_inner(size_t data_len) {
 		exit(EXIT_FAILURE);
 	}
 
-	r = falcon_det1024_verify_ct(sigs_ct[data_len], pubkey, data, data_len);
+	r = falcon_det1024_verify_ct_with_workbuf(sigs_ct[data_len], pubkey, data,
+		data_len, verify_ct_workbuf, sizeof verify_ct_workbuf);
 	if (r != 0) {
 		fprintf(stderr, "verify_ct (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
+	}
+
+	r = falcon_det1024_pubkey_coeffs(h, pubkey);
+	if (r != 0) {
+		fprintf(stderr, "pubkey_coeffs (data_len=%zu) failed: %d\n", data_len, r);
+		exit(EXIT_FAILURE);
+	}
+
+	r = falcon_det1024_hash_to_point_coeffs_with_workbuf(c, data, data_len, v,
+		hash_workbuf, sizeof hash_workbuf);
+	if (r != 0) {
+		fprintf(stderr, "hash_to_point (data_len=%zu) failed: %d\n", data_len, r);
+		exit(EXIT_FAILURE);
+	}
+
+	r = falcon_det1024_s2_coeffs(s2, sigs_ct[data_len]);
+	if (r != 0) {
+		fprintf(stderr, "s2_coeffs (data_len=%zu) failed: %d\n", data_len, r);
+		exit(EXIT_FAILURE);
+	}
+
+	r = falcon_det1024_s1_coeffs_with_workbuf(s1, h, c, s2,
+		s1_workbuf, sizeof s1_workbuf);
+	if (r != 0) {
+		fprintf(stderr, "s1_coeffs_with_workbuf (data_len=%zu) failed: %d\n", data_len, r);
+		exit(EXIT_FAILURE);
+	}
+
+	r = falcon_det1024_s1_coeffs(s1_legacy, h, c, s2);
+	if (r != 0) {
+		fprintf(stderr, "s1_coeffs (data_len=%zu) failed: %d\n", data_len, r);
+		exit(EXIT_FAILURE);
+	}
+	if (memcmp(s1, s1_legacy, sizeof s1) != 0) {
+		fprintf(stderr, "s1_coeffs mismatch (data_len=%zu)\n", data_len);
+		exit(EXIT_FAILURE);
+	}
+
+	if (data_len == 0) {
+		uint8_t privkey_legacy[FALCON_DET1024_PRIVKEY_SIZE];
+		uint8_t pubkey_legacy[FALCON_DET1024_PUBKEY_SIZE];
+		shake256_context key_rng_legacy;
+
+		shake256_init_prng_from_seed(&key_rng_legacy, key_seed, 8);
+		r = falcon_det1024_keygen(&key_rng_legacy, privkey_legacy, pubkey_legacy);
+		if (r != 0) {
+			fprintf(stderr, "legacy keygen failed: %d\n", r);
+			exit(EXIT_FAILURE);
+		}
+		if (memcmp(privkey, privkey_legacy, sizeof privkey) != 0
+			|| memcmp(pubkey, pubkey_legacy, sizeof pubkey) != 0)
+		{
+			fprintf(stderr, "legacy keygen mismatch\n");
+			exit(EXIT_FAILURE);
+		}
+
+		r = falcon_det1024_sign_compressed(sig_legacy, &sig_len_legacy,
+			privkey, data, data_len);
+		if (r != 0) {
+			fprintf(stderr, "legacy sign failed: %d\n", r);
+			exit(EXIT_FAILURE);
+		}
+		if (sig_len != sig_len_legacy
+			|| memcmp(sig, sig_legacy, sig_len) != 0)
+		{
+			fprintf(stderr, "legacy sign mismatch\n");
+			exit(EXIT_FAILURE);
+		}
 	}
 
 #ifdef GENERATE_KATS            /* print the KAT */

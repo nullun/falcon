@@ -111,6 +111,57 @@ Applications that want to use Falcon normally work on the external API,
 which is documented in the "falcon.h" file. This is the only file that
 an external application needs to use.
 
+EMBEDDED USAGE
+--------------
+
+The C implementation can be used on embedded targets, but Falcon-1024
+needs substantial temporary storage. The generic Falcon API in
+"falcon.h" already lets the caller provide temporary buffers. This
+repository now exposes matching MCU-oriented entry points for the
+deterministic det1024 wrapper in "deterministic.h":
+
+  - falcon_det1024_keygen_with_workbuf()
+  - falcon_det1024_sign_compressed_with_workbuf()
+  - falcon_det1024_verify_compressed_with_workbuf()
+  - falcon_det1024_verify_ct_with_workbuf()
+  - falcon_det1024_convert_compressed_to_ct_with_workbuf()
+  - falcon_det1024_hash_to_point_coeffs_with_workbuf()
+  - falcon_det1024_s1_coeffs_with_workbuf()
+
+Each such function has a corresponding FALCON_DET1024_WORKBUF_*_SIZE
+macro so that applications can place the work area in static RAM,
+thread-local storage, or another caller-controlled memory region,
+instead of using large stack allocations in the convenience wrappers.
+
+In real-world terms, these changes mostly save *stack*, not total RAM.
+The algorithm still needs the same temporary space, but the caller now
+decides where that space lives.
+
+For Falcon-1024 det1024, the rough stack impact of the convenience
+wrappers versus the workbuf APIs is:
+
+  - keygen: about 31.8 kB moved off the stack
+  - sign_compressed: about 81.3 kB moved off the stack
+  - verify_compressed: about 9.7 kB moved off the stack
+  - verify_ct: about 9.8 kB moved off the stack
+
+A typical embedded scenario is an RTOS task with an 8 kB or 16 kB
+stack. In the old wrapper API, calling falcon_det1024_sign_compressed()
+would often require making that task stack much larger, or risk stack
+overflow. With falcon_det1024_sign_compressed_with_workbuf(), the task
+stack stays small while the ~81 kB work area can be placed in static
+RAM, a dedicated arena, or another memory region chosen by the
+application.
+
+Likewise, verification often becomes easier to deploy on small stacks:
+the old API needs roughly 10 kB of stack, while the workbuf API allows
+that temporary memory to be preallocated elsewhere.
+
+On bare-metal systems, do not rely on shake256_init_prng_from_system():
+it is implemented only for supported hosted environments. Instead, seed
+the RNG explicitly with shake256_init_prng_from_seed(), using bytes
+obtained from the platform TRNG or other approved entropy source.
+
 For research purposes, the inner API is documented in "inner.h". This
 API gives access to many internal functions that perform some elementary
 operations used in Falcon. That API also has some non-obvious
