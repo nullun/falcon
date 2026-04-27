@@ -1,6 +1,77 @@
 DETERMINISTIC FALCON IMPLEMENTATION
 ===================================
 
+GIBBS SAMPLER KEY GENERATION (gibbs branch)
+-------------------------------------------
+
+This branch integrates the Gibbs sampler trapdoor generation algorithm
+from:
+
+  Chao Sun, Thomas Espitau, Junjie Song, Jinguang Han, Mehdi Tibouchi.
+  "Generating FALCON Trapdoors via Gibbs Sampler" (PQCrypto 2026).
+
+The paper is included as falcon-gibbs.pdf.
+
+Overview
+
+  Instead of the standard trial-and-repeat approach (sampling f, g from
+  discrete Gaussians and rejecting when the quality bound is not met),
+  this branch uses a Gibbs sampler in the Fourier domain to directly
+  generate (f, g) pairs that achieve a quality parameter alpha = 1.04,
+  down from the standard alpha = 1.17.  This raises the classical
+  security of FALCON-512 from ~120 bits to ~128 bits (NIST level 1).
+
+  The implementation targets logn = 9 (n = 512) only.
+
+Differences from the paper
+
+  - epsilon = 0.01 instead of the paper's 0.005.  The paper predicts
+    ~99.4% single-shot acceptance at epsilon = 0.005, but in practice
+    rounding noise consumes most of the margin and acceptance drops to
+    ~74%.  Doubling epsilon to 0.01 restores acceptance to ~99.6%.
+    This trades a slightly tighter Gibbs sampling region for reliable
+    acceptance.  The output is still gated on alpha = 1.04 quality.
+
+  - gibbs_decode_odd() adds a parity fix not described in the paper:
+    after rounding each coefficient to the nearest integer, the sum of
+    coefficients is forced odd (required by the NTRU equation solver).
+    The standard keygen gets this from poly_small_mkgauss's biased-coin
+    trick; the Gibbs path must do it explicitly.
+
+  - A coefficient bounds gate rejects keys where any coefficient exceeds
+    the FALCON_COMP_TRIM encoding limit (max_fg_bits), matching the
+    standard keygen path.
+
+  - An integer-norm gate (||f||^2 + ||g||^2 < alpha^2 * q) serves as a
+    cheap pre-filter before the full FFT-domain GS-norm gate.
+
+Build
+
+  The Gibbs keygen is gated behind -DFALCON_GIBBS_KEYGEN=1.  The Go
+  build-tag file falcon_gibbs.go sets this automatically when the
+  'gibbs' build tag is used:
+
+    go build -tags gibbs ./...
+
+  For the C test harness:
+
+    make test_gibbs       # KAT, acceptance rate, sign+verify tests
+    make test_fpr_trig    # sin/cos accuracy tests
+
+  The standard 'make' target builds without Gibbs support; existing
+  tests and benchmarks are unaffected.
+
+WARNING
+
+  Keys generated with this path are NOT compatible with standard FALCON.
+  The alpha = 1.04 quality produces shorter signatures and higher
+  security, but the encoding and verification differ from the NIST
+  standard.  Do not use in production.
+
+
+BASE IMPLEMENTATION
+-------------------
+
 Version: 2021-12-03
 
 Falcon is a post-quantum signature algorithm, submitted to NIST's

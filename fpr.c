@@ -3458,3 +3458,140 @@ const fpr fpr_p2_tab[] = {
 #error No FP implementation selected
 
 #endif // yyyFPNATIVE- yyyFPEMU-
+
+/* ====================================================================== */
+/*
+ * Trigonometric functions, mode-agnostic.
+ *
+ * Built on the public fpr_* API only, so the same source compiles for
+ * both FALCON_FPEMU and FALCON_FPNATIVE. Output is bit-identical across
+ * builds provided the compiler does not contract independent fpr_mul +
+ * fpr_add calls into a fused multiply-add; each fpr operation passes
+ * its result through a value (uint64_t in FPEMU, struct in native),
+ * which blocks contraction across calls under standard
+ * -ffp-contract=on (the GCC/Clang default at -O3).
+ *
+ * Algorithm:
+ *   1. Reduce x in [0, 2*pi) to a quadrant index q in {0,1,2,3} and a
+ *      remainder r in [0, pi/2).
+ *   2. If r > pi/4, fold to r' = pi/2 - r in [0, pi/4] and remember the
+ *      swap; the kernels are then evaluated only on [0, pi/4] where the
+ *      fdlibm minimax polynomials are accurate to <1 ULP.
+ *   3. Compute sin(r') and cos(r') jointly, reusing z = r'^2.
+ *   4. Pick sin(x) or cos(x) from (q, swap) via the octant table.
+ */
+
+static void
+fpr_sincos_kernel(fpr r, fpr *s_out, fpr *c_out)
+{
+	fpr z, s_acc, c_acc, hz, cos_poly;
+
+	z = fpr_mul(r, r);
+
+	/* sin(r) = r + r*z*(S1 + z*(S2 + z*(S3 + z*(S4 + z*(S5 + z*S6))))) */
+	s_acc = fpr_sin_S6;
+	s_acc = fpr_add(fpr_sin_S5, fpr_mul(z, s_acc));
+	s_acc = fpr_add(fpr_sin_S4, fpr_mul(z, s_acc));
+	s_acc = fpr_add(fpr_sin_S3, fpr_mul(z, s_acc));
+	s_acc = fpr_add(fpr_sin_S2, fpr_mul(z, s_acc));
+	s_acc = fpr_add(fpr_sin_S1, fpr_mul(z, s_acc));
+	*s_out = fpr_add(r, fpr_mul(r, fpr_mul(z, s_acc)));
+
+	/* cos(r) = (1 - z/2) + z*z*(C1 + z*(C2 + ... + z*C6))
+	 * Six coefficients matches fdlibm's __kernel_cos; dropping C6 leaves
+	 * a residual of ~1e-13 around r = pi/4. */
+	c_acc = fpr_cos_C6;
+	c_acc = fpr_add(fpr_cos_C5, fpr_mul(z, c_acc));
+	c_acc = fpr_add(fpr_cos_C4, fpr_mul(z, c_acc));
+	c_acc = fpr_add(fpr_cos_C3, fpr_mul(z, c_acc));
+	c_acc = fpr_add(fpr_cos_C2, fpr_mul(z, c_acc));
+	c_acc = fpr_add(fpr_cos_C1, fpr_mul(z, c_acc));
+	hz = fpr_mul(z, fpr_onehalf);
+	cos_poly = fpr_mul(fpr_mul(z, z), c_acc);
+	*c_out = fpr_add(fpr_sub(fpr_one, hz), cos_poly);
+}
+
+static void
+fpr_reduce_octant(fpr x, fpr *r_out, int *q_out, int *swap_out)
+{
+	int64_t q;
+	fpr qf, r;
+
+	/*
+	 * Cody-Waite reduction. q*pi/2_hi is exact for q in {0,1,2,3}
+	 * because pi/2_hi has its low mantissa bits zeroed; the trailing
+	 * pi/2_lo correction recovers the bits that were dropped. Without
+	 * this split, inputs near a quadrant boundary lose ~50 bits of
+	 * relative precision in the reduced value.
+	 */
+	q = fpr_trunc(fpr_mul(x, fpr_two_over_pi));
+	qf = fpr_of(q);
+	r = fpr_sub(x, fpr_mul(qf, fpr_pi_2_hi));
+	r = fpr_sub(r, fpr_mul(qf, fpr_pi_2_lo));
+	if (fpr_lt(fpr_pi_4, r)) {
+		r = fpr_sub(fpr_pi_2, r);
+		*swap_out = 1;
+	} else {
+		*swap_out = 0;
+	}
+	*r_out = r;
+	*q_out = (int)(q & 3);
+}
+
+fpr
+fpr_sin(fpr x)
+{
+	fpr r, s, c, result;
+	int q, swap, use_cos, negate;
+
+	fpr_reduce_octant(x, &r, &q, &swap);
+	fpr_sincos_kernel(r, &s, &c);
+
+	/*
+	 * sin(x):  q | swap=0 | swap=1
+	 *          0 |  s     |  c
+	 *          1 |  c     |  s
+	 *          2 | -s     | -c
+	 *          3 | -c     | -s
+	 */
+	use_cos = (q & 1) ^ swap;
+	negate  = (q >> 1) & 1;
+	if (use_cos) {
+		result = c;
+	} else {
+		result = s;
+	}
+	if (negate) {
+		result = fpr_neg(result);
+	}
+	return result;
+}
+
+fpr
+fpr_cos(fpr x)
+{
+	fpr r, s, c, result;
+	int q, swap, use_cos, negate;
+
+	fpr_reduce_octant(x, &r, &q, &swap);
+	fpr_sincos_kernel(r, &s, &c);
+
+	/*
+	 * cos(x):  q | swap=0 | swap=1
+	 *          0 |  c     |  s
+	 *          1 | -s     | -c
+	 *          2 | -c     | -s
+	 *          3 |  s     |  c
+	 */
+	use_cos = ((q & 1) ^ swap) ^ 1;
+	negate  = ((q + 1) >> 1) & 1;
+	if (use_cos) {
+		result = c;
+	} else {
+		result = s;
+	}
+	if (negate) {
+		result = fpr_neg(result);
+	}
+	return result;
+}

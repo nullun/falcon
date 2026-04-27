@@ -1071,6 +1071,18 @@ void Zf(keygen)(inner_shake256_context *rng,
 	int8_t *f, int8_t *g, int8_t *F, int8_t *G, uint16_t *h,
 	unsigned logn, uint8_t *tmp);
 
+#if defined FALCON_GIBBS_KEYGEN && FALCON_GIBBS_KEYGEN
+/*
+ * One single shot of Algorithm 2 (Gibbs trapdoor sampling). Returns 1 on
+ * success, 0 on rejection. Used by tests/test_gibbs.c to measure the
+ * single-shot acceptance rate; the production Zf(keygen) loop hides this
+ * by retrying internally. tmp[] must hold 3*2^logn fpr (= the same
+ * FALCON_KEYGEN_TEMP_<logn> sizing).
+ */
+int Zf(gibbs_sample_fg_once)(inner_shake256_context *rng,
+	int8_t *f, int8_t *g, unsigned logn, uint8_t *tmp);
+#endif
+
 /* ==================================================================== */
 /*
  * Signature generation.

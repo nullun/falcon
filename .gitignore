@@ -1,0 +1,6 @@
+*.o
+tests/test_falcon
+tests/test_deterministic
+tests/test_fpr_trig
+tests/test_gibbs
+tests/speed
