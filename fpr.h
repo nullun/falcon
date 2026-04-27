@@ -270,6 +270,35 @@ static const fpr fpr_ptwo63m1 = 4890909195324358656;
 static const fpr fpr_mtwo63m1 = 14114281232179134464U;
 static const fpr fpr_ptwo63 = 4890909195324358656;
 
+/*
+ * Trigonometric kernel constants. The polynomial approximations are the
+ * fdlibm minimax kernels valid on [-pi/4, pi/4]; the angle constants below
+ * support a single-step quadrant range reduction from [0, 2*pi).
+ */
+static const fpr fpr_pi_2        = 4609753056924675352u;  /*  pi/2 */
+static const fpr fpr_pi_4        = 4605249457297304856u;  /*  pi/4 */
+static const fpr fpr_two_pi      = 4618760256179416344u;  /*  2*pi */
+static const fpr fpr_two_over_pi = 4603909380684499075u;  /*  2/pi */
+/*
+ * Cody-Waite split of pi/2: pi_2_hi has its bottom mantissa bits zeroed so
+ * q * pi_2_hi is exactly representable for q in {0,1,2,3}; pi_2_lo is the
+ * residual. Used by fpr_reduce_octant for high-precision range reduction.
+ */
+static const fpr fpr_pi_2_hi     = 4609753056584663040u;  /*  1.57079625129699707031e+00 */
+static const fpr fpr_pi_2_lo     = 4500296888116838400u;  /*  7.54978994876864817343e-08 */
+static const fpr fpr_sin_S1      = 13818544856648471881u; /* -1.66666666666666324348e-01 */
+static const fpr fpr_sin_S2      =  4575957461383575718u; /*  8.33333333332248946124e-03 */
+static const fpr fpr_sin_S3      = 13774824197404582357u; /* -1.98412698298579493134e-04 */
+static const fpr fpr_sin_S4      =  4523617212983017085u; /*  2.75573137070700676789e-06 */
+static const fpr fpr_sin_S5      = 13716528393433619691u; /* -2.50507602534068634195e-08 */
+static const fpr fpr_sin_S6      =  4460209850635244924u; /*  1.58969099521155010221e-10 */
+static const fpr fpr_cos_C1      =  4586165620538955084u; /*  4.16666666666666019037e-02 */
+static const fpr fpr_cos_C2      = 13787419979223748983u; /* -1.38888888888741095749e-03 */
+static const fpr fpr_cos_C3      =  4537941361668330896u; /*  2.48015872894767294178e-05 */
+static const fpr fpr_cos_C4      = 13732177093731308205u; /* -2.75573143513906633035e-07 */
+static const fpr fpr_cos_C5      =  4477121870137962948u; /*  2.08757232129817482790e-09 */
+static const fpr fpr_cos_C6      = 13666448951086692564u; /* -1.13596475577881948265e-11 */
+
 static inline int64_t
 fpr_rint(fpr x)
 {
@@ -459,6 +488,20 @@ fpr_inv(fpr x)
 #define fpr_sqrt   Zf(fpr_sqrt)
 fpr fpr_sqrt(fpr x);
 
+/*
+ * fpr_sin and fpr_cos are deterministic, FPEMU-only implementations of
+ * sin and cos for arguments in [0, 2*pi). They use a single-step
+ * quadrant reduction followed by the fdlibm minimax kernels and are
+ * built entirely from existing fpr_* primitives, which makes their
+ * output bit-identical across platforms. Inputs outside the contracted
+ * range are not asserted; callers are responsible for the reduction.
+ */
+#define fpr_sin   Zf(fpr_sin)
+fpr fpr_sin(fpr x);
+
+#define fpr_cos   Zf(fpr_cos)
+fpr fpr_cos(fpr x);
+
 static inline int
 fpr_lt(fpr x, fpr y)
 {
@@ -568,6 +611,28 @@ static const fpr fpr_mtwo31m1 = { -2147483647.0 };
 static const fpr fpr_ptwo63m1 = { 9223372036854775807.0 };
 static const fpr fpr_mtwo63m1 = { -9223372036854775807.0 };
 static const fpr fpr_ptwo63 = { 9223372036854775808.0 };
+
+/*
+ * Trigonometric kernel constants (mirror of the FPEMU block).
+ */
+static const fpr fpr_pi_2        = {  1.57079632679489655800e+00 };
+static const fpr fpr_pi_4        = {  7.85398163397448278999e-01 };
+static const fpr fpr_two_pi      = {  6.28318530717958623200e+00 };
+static const fpr fpr_two_over_pi = {  6.36619772367581382433e-01 };
+static const fpr fpr_pi_2_hi     = {  1.57079625129699707031e+00 };
+static const fpr fpr_pi_2_lo     = {  7.54978994876864817343e-08 };
+static const fpr fpr_sin_S1      = { -1.66666666666666324348e-01 };
+static const fpr fpr_sin_S2      = {  8.33333333332248946124e-03 };
+static const fpr fpr_sin_S3      = { -1.98412698298579493134e-04 };
+static const fpr fpr_sin_S4      = {  2.75573137070700676789e-06 };
+static const fpr fpr_sin_S5      = { -2.50507602534068634195e-08 };
+static const fpr fpr_sin_S6      = {  1.58969099521155010221e-10 };
+static const fpr fpr_cos_C1      = {  4.16666666666666019037e-02 };
+static const fpr fpr_cos_C2      = { -1.38888888888741095749e-03 };
+static const fpr fpr_cos_C3      = {  2.48015872894767294178e-05 };
+static const fpr fpr_cos_C4      = { -2.75573143513906633035e-07 };
+static const fpr fpr_cos_C5      = {  2.08757232129817482790e-09 };
+static const fpr fpr_cos_C6      = { -1.13596475577881948265e-11 };
 
 static inline int64_t
 fpr_rint(fpr x)
@@ -923,6 +988,16 @@ fpr_expm_p63(fpr x, fpr ccs)
 
 #endif  // yyyAVX2-
 }
+
+/*
+ * Out-of-line in fpr.c so that both modes share the exact same call
+ * sequence; see the FPEMU block above for the contract.
+ */
+#define fpr_sin   Zf(fpr_sin)
+fpr fpr_sin(fpr x);
+
+#define fpr_cos   Zf(fpr_cos)
+fpr fpr_cos(fpr x);
 
 #define fpr_gm_tab   Zf(fpr_gm_tab)
 extern const fpr fpr_gm_tab[];

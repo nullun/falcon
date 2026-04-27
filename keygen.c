@@ -4090,7 +4090,11 @@ solve_NTRU(unsigned logn, int8_t *F, int8_t *G,
 /*
  * Generate a random polynomial with a Gaussian distribution. This function
  * also makes sure that the resultant of the polynomial with phi is odd.
+ *
+ * Unused under FALCON_GIBBS_KEYGEN (the Gibbs path produces f and g via
+ * Algorithm 2 instead of poly_small_mkgauss).
  */
+__attribute__((unused))
 static void
 poly_small_mkgauss(RNG_CONTEXT *rng, int8_t *f, unsigned logn)
 {
@@ -4130,6 +4134,399 @@ poly_small_mkgauss(RNG_CONTEXT *rng, int8_t *f, unsigned logn)
 		f[u] = (int8_t)s;
 	}
 }
+
+/* ====================================================================== */
+/*
+ * Gibbs sampler key generation path.
+ *
+ * Algorithm 2 from Sun, Espitau, Song, Han, Tibouchi, "Generating FALCON
+ * Trapdoors via Gibbs Sampler" (PQCrypto 2026). Gated behind
+ * FALCON_GIBBS_KEYGEN; when undefined this section compiles to nothing.
+ *
+ * Parameters (paper convention; see gibbs-research-plan.md §3):
+ *   d = 512, q = 12289, alpha = 1.04, epsilon = 0.01, N = 2500
+ *   beta = alpha - epsilon = 1.03, B^2 = (d/2) * beta^2
+ *
+ * Buffer layout inside tmp[] (8-byte aligned):
+ *
+ *   Phase A (Gibbs chain, embedding, iFFT) — total 5*hn fpr = 10 KiB at d=512
+ *     X    [0   .. hn)   chain state x_i
+ *     Xinv [hn  .. 2hn)  cached 1/x_i (incremental sum tracking)
+ *     phi_f[2hn .. 4hn)  half-spectrum FFT layout for f
+ *     phi_g[4hn .. 6hn)  half-spectrum FFT layout for g
+ *
+ *   Phase B (FFT-domain GS gate) — reuses tmp from offset 0, total 3n fpr
+ *     rt1  [0  ..  n)    FFT(f)
+ *     rt2  [n  .. 2n)    FFT(g)
+ *     rt3  [2n .. 3n)    1 / (|FFT(f)|^2 + |FFT(g)|^2)
+ *
+ * Both phases fit inside FALCON_KEYGEN_TEMP_9 = 14336 bytes (3n = 12 KiB at
+ * n = 512). Phase A and Phase B do not overlap in time, so reusing tmp is
+ * safe. f and g are written to caller-supplied int8_t buffers between
+ * phases.
+ */
+
+#if defined FALCON_GIBBS_KEYGEN && FALCON_GIBBS_KEYGEN
+
+#define GIBBS_N_ITERS      2500
+
+/*
+ * Integer-norm gate: ||f||^2 + ||g||^2 <= alpha^2 * q. With alpha = 1.04
+ * and q = 12289, alpha^2 * q = 13295.66, so we accept strictly less than
+ * 13296.
+ */
+#define GIBBS_FG_NORM_MAX  13296u
+
+#ifdef SWEEP_EPSILON
+#include <string.h>
+#endif
+
+/*
+ * Paper constants. Bit-identical IEEE-754 doubles in both fpr modes.
+ * SWEEP_EPSILON, if defined at compile time, overrides epsilon for
+ * parameter sweeps without touching alpha or any other constant.
+ *
+ * The paper's headline parameter is epsilon = 0.005, which gives only ~74%
+ * single-shot acceptance because rounding noise consumes most of the margin
+ * between the sampling ball and the alpha-gate (see gibbs-diagnostic-report.md).
+ * We use epsilon = 0.01: doubles the margin, lifts acceptance to ~99.6%, and
+ * matches the paper's reported 99.4% empirical rate.
+ */
+#ifdef SWEEP_EPSILON
+#define GIBBS_EPSILON_VAL  SWEEP_EPSILON
+#else
+#define GIBBS_EPSILON_VAL  0.01
+#endif
+
+#if FALCON_FPEMU
+static const fpr gibbs_alpha   = 4607362562785112228ULL;  /* 1.04  */
+#else
+static const fpr gibbs_alpha   = { 1.04 };
+#endif
+
+static fpr
+gibbs_uniform_fpr(prng *p, fpr lo, fpr hi)
+{
+	uint64_t w;
+	fpr u, range;
+
+	w = prng_get_u64(p) >> 11;
+	u = fpr_mul(fpr_of((int64_t)w), fpr_scaled(1, -53));
+	range = fpr_sub(hi, lo);
+	return fpr_add(lo, fpr_mul(range, u));
+}
+
+/*
+ * Sample a uniform fpr in [0, 1) from the PRNG.
+ */
+static fpr
+gibbs_uniform01(prng *p)
+{
+	uint64_t w = prng_get_u64(p) >> 11;
+	return fpr_mul(fpr_of((int64_t)w), fpr_scaled(1, -53));
+}
+
+/*
+ * Round each coefficient of x[0..n-1] to the nearest integer into f[]; if
+ * the resulting parity sum is even, flip the worst-rounded coefficient
+ * (the one with largest |residual|) toward its true value to make the
+ * resultant odd. solve_NTRU requires this; the rejection-sampling path gets
+ * it for free from poly_small_mkgauss's biased-coin trick on the constant
+ * term, which the Gibbs path does not have.
+ *
+ * Returns 1 on success, 0 if any coefficient rounds outside int8_t range
+ * or the parity fix overflows in both directions (astronomically unlikely).
+ */
+static int
+gibbs_decode_odd(int8_t *f, const fpr *x, unsigned logn)
+{
+	size_t n, u;
+	unsigned parity;
+	size_t worst_idx;
+	fpr worst_abs;
+	int worst_sign;
+
+	n = MKN(logn);
+	parity = 0;
+	worst_idx = 0;
+	worst_abs = fpr_zero;
+	worst_sign = 1;
+	for (u = 0; u < n; u++) {
+		int64_t ri;
+		fpr frac, abs_frac;
+		int sign;
+
+		ri = fpr_rint(x[u]);
+		if (ri > 127 || ri < -128) {
+			return 0;
+		}
+		f[u] = (int8_t)ri;
+		parity ^= (unsigned)(ri & 1);
+
+		frac = fpr_sub(x[u], fpr_of(ri));
+		if (fpr_lt(frac, fpr_zero)) {
+			abs_frac = fpr_neg(frac);
+			sign = -1;
+		} else {
+			abs_frac = frac;
+			sign = 1;
+		}
+		if (fpr_lt(worst_abs, abs_frac)) {
+			worst_abs = abs_frac;
+			worst_idx = u;
+			worst_sign = sign;
+		}
+	}
+	if ((parity & 1) == 0) {
+		int ri = f[worst_idx];
+		int new_ri = ri + worst_sign;
+
+		if (new_ri > 127 || new_ri < -128) {
+			new_ri = ri - worst_sign;
+			if (new_ri > 127 || new_ri < -128) {
+				return 0;
+			}
+		}
+		f[worst_idx] = (int8_t)new_ri;
+	}
+	return 1;
+}
+
+/*
+ * One Gibbs trapdoor draw. Returns 1 on success (post-rounding gates pass),
+ * 0 on rejection. Caller retries on 0. Memory: tmp must hold 3n fpr =
+ * FALCON_KEYGEN_TEMP_9 worth at logn = 9.
+ */
+static int
+gibbs_sample_fg(RNG_CONTEXT *rc, int8_t *f, int8_t *g,
+	unsigned logn, uint8_t *tmp)
+{
+	size_t n, hn, u, k;
+	fpr *X, *Xinv, *phi_f, *phi_g;
+	fpr beta, B2, S, Sinv;
+	prng p;
+
+#if FALCON_KG_CHACHA20
+	p = *rc;
+#else
+	Zf(prng_init)(&p, rc);
+#endif
+	n = MKN(logn);
+	hn = n >> 1;
+
+	/* Phase A buffer layout. */
+	X = (fpr *)tmp;
+	Xinv = X + hn;
+	phi_f = Xinv + hn;
+	phi_g = phi_f + n;
+
+	/*
+	 * Build epsilon as an fpr via double-to-fpr conversion. The default
+	 * 0.01 is not exactly representable in binary fp; the rounding error
+	 * is ~10^-18, well below any threshold we care about.
+	 */
+	{
+		double eps_d = GIBBS_EPSILON_VAL;
+		fpr eps_fpr;
+#if FALCON_FPEMU
+		memcpy(&eps_fpr, &eps_d, sizeof eps_fpr);
+#else
+		eps_fpr.v = eps_d;
+#endif
+		beta = fpr_sub(gibbs_alpha, eps_fpr);
+	}
+	B2 = fpr_mul(fpr_of((int64_t)hn), fpr_sqr(beta));
+
+	/*
+	 * Initialise X = (1, ..., 1). With every x_j = 1, sum x_j = sum 1/x_j
+	 * = hn, both <= B^2 = hn * beta^2 since beta > 1. Feasibility holds.
+	 */
+	S = fpr_zero;
+	Sinv = fpr_zero;
+	for (u = 0; u < hn; u++) {
+		X[u] = fpr_of(1);
+		Xinv[u] = fpr_of(1);
+		S = fpr_add(S, fpr_of(1));
+		Sinv = fpr_add(Sinv, fpr_of(1));
+	}
+
+	/*
+	 * Inner Gibbs loop. We track running sums S = sum x_j and Sinv =
+	 * sum 1/x_j incrementally; see the paper §5 complexity discussion.
+	 * Each coordinate update is O(1) instead of O(hn), making the whole
+	 * sampler O(N * hn) instead of O(N * hn^2).
+	 *
+	 * Feasibility invariant: S <= B^2 AND Sinv <= B^2. The conditional
+	 * support [L, U] is non-empty iff this holds, so we never need to
+	 * skip an update or restart the chain at this stage.
+	 */
+	for (k = 0; k < GIBBS_N_ITERS; k++) {
+		for (u = 0; u < hn; u++) {
+			fpr T_inv, T_norm, L, U_, denom;
+			fpr x_old, xinv_old, x_new, xinv_new;
+
+			x_old = X[u];
+			xinv_old = Xinv[u];
+			T_norm = fpr_sub(S, x_old);
+			T_inv = fpr_sub(Sinv, xinv_old);
+
+			denom = fpr_sub(B2, T_inv);
+			U_ = fpr_sub(B2, T_norm);
+			/*
+			 * Invariant should make denom > 0 and U_ >= L. If fp
+			 * drift ever violates that, fail this draw rather than
+			 * generating an out-of-distribution sample.
+			 */
+			if (!fpr_lt(fpr_zero, denom)) {
+				return 0;
+			}
+			L = fpr_inv(denom);
+			if (fpr_lt(U_, L)) {
+				return 0;
+			}
+
+			x_new = gibbs_uniform_fpr(&p, L, U_);
+			xinv_new = fpr_inv(x_new);
+			X[u] = x_new;
+			Xinv[u] = xinv_new;
+			S = fpr_add(T_norm, x_new);
+			Sinv = fpr_add(T_inv, xinv_new);
+		}
+	}
+
+	/*
+	 * Embed: phi_j(f) = sqrt(q*x_j) cos(theta) e^{i gamma_f}
+	 *        phi_j(g) = sqrt(q*x_j) sin(theta) e^{i gamma_g}
+	 * Falcon's half-spectrum FFT layout stores n reals: real parts of
+	 * the hn independent bins followed by their imaginary parts. The
+	 * mirrored conjugate half is implicit; we do not write it.
+	 */
+	for (u = 0; u < hn; u++) {
+		fpr theta, gamma_f, gamma_g;
+		fpr mag, cos_t, sin_t;
+		fpr cos_gf, sin_gf, cos_gg, sin_gg;
+		fpr mag_f, mag_g;
+
+		theta   = fpr_mul(fpr_pi_2,   gibbs_uniform01(&p));
+		gamma_f = fpr_mul(fpr_two_pi, gibbs_uniform01(&p));
+		gamma_g = fpr_mul(fpr_two_pi, gibbs_uniform01(&p));
+
+		mag = fpr_sqrt(fpr_mul(fpr_q, X[u]));
+		cos_t  = fpr_cos(theta);
+		sin_t  = fpr_sin(theta);
+		cos_gf = fpr_cos(gamma_f);
+		sin_gf = fpr_sin(gamma_f);
+		cos_gg = fpr_cos(gamma_g);
+		sin_gg = fpr_sin(gamma_g);
+
+		mag_f = fpr_mul(mag, cos_t);
+		mag_g = fpr_mul(mag, sin_t);
+		phi_f[u]      = fpr_mul(mag_f, cos_gf);
+		phi_f[u + hn] = fpr_mul(mag_f, sin_gf);
+		phi_g[u]      = fpr_mul(mag_g, cos_gg);
+		phi_g[u + hn] = fpr_mul(mag_g, sin_gg);
+	}
+
+	/* Step 5: iFFT to get real polynomials, then round to integers. */
+	Zf(iFFT)(phi_f, logn);
+	Zf(iFFT)(phi_g, logn);
+
+	if (!gibbs_decode_odd(f, phi_f, logn)
+	 || !gibbs_decode_odd(g, phi_g, logn))
+	{
+		return 0;
+	}
+
+	/*
+	 * Coefficient bounds gate: reject if any coefficient of f or g
+	 * exceeds the FALCON_COMP_TRIM encoding limit, matching the
+	 * standard rejection-sampling path (see max_fg_bits[] in codec.c).
+	 */
+	{
+		int lim = 1 << (Zf(max_fg_bits)[logn] - 1);
+		for (u = 0; u < n; u++) {
+			if (f[u] >= lim || f[u] <= -lim
+			 || g[u] >= lim || g[u] <= -lim)
+			{
+				return 0;
+			}
+		}
+	}
+
+	/*
+	 * Step 6: integer-norm gate, then FFT-domain GS-norm gate.
+	 *
+	 * Integer-norm: ||f||^2 + ||g||^2 < alpha^2 * q. Cheap, runs first.
+	 *
+	 * GS-norm: same machinery as the rejection-sampling path
+	 * (poly_invnorm2_fft + poly_adj_fft + poly_mulconst(q) +
+	 * poly_mul_autoadj_fft + iFFT + sum). We re-FFT the rounded
+	 * integers; tmp is reused as Phase B from offset 0.
+	 */
+	{
+		uint32_t normf = poly_small_sqnorm(f, logn);
+		uint32_t normg = poly_small_sqnorm(g, logn);
+		uint32_t norm = (normf + normg) | -((normf | normg) >> 31);
+
+		if (norm >= GIBBS_FG_NORM_MAX)
+			return 0;
+	}
+
+	{
+		fpr *rt1, *rt2, *rt3, bnorm, bnorm_max;
+
+		/* alpha^2 * q ; matches the rejection-sampling path's
+		 * fpr_bnorm_max but at alpha = 1.04 instead of 1.17. */
+		bnorm_max = fpr_mul(fpr_sqr(gibbs_alpha), fpr_q);
+
+		rt1 = (fpr *)tmp;
+		rt2 = rt1 + n;
+		rt3 = rt2 + n;
+		poly_small_to_fp(rt1, f, logn);
+		poly_small_to_fp(rt2, g, logn);
+		Zf(FFT)(rt1, logn);
+		Zf(FFT)(rt2, logn);
+		Zf(poly_invnorm2_fft)(rt3, rt1, rt2, logn);
+		Zf(poly_adj_fft)(rt1, logn);
+		Zf(poly_adj_fft)(rt2, logn);
+		Zf(poly_mulconst)(rt1, fpr_q, logn);
+		Zf(poly_mulconst)(rt2, fpr_q, logn);
+		Zf(poly_mul_autoadj_fft)(rt1, rt3, logn);
+		Zf(poly_mul_autoadj_fft)(rt2, rt3, logn);
+		Zf(iFFT)(rt1, logn);
+		Zf(iFFT)(rt2, logn);
+		bnorm = fpr_zero;
+		for (u = 0; u < n; u++) {
+			bnorm = fpr_add(bnorm, fpr_sqr(rt1[u]));
+			bnorm = fpr_add(bnorm, fpr_sqr(rt2[u]));
+		}
+		if (!fpr_lt(bnorm, bnorm_max))
+			return 0;
+	}
+
+	return 1;
+}
+
+/*
+ * Test entry point: one shot of Gibbs sampling with a fresh PRNG. Exposed
+ * only when FALCON_GIBBS_KEYGEN is set, used by tests/test_gibbs.c to
+ * measure the single-shot acceptance rate (the outer Zf(keygen) loop hides
+ * it by retrying internally).
+ */
+int
+Zf(gibbs_sample_fg_once)(inner_shake256_context *rng,
+	int8_t *f, int8_t *g, unsigned logn, uint8_t *tmp)
+{
+#if FALCON_KG_CHACHA20
+	prng rc;
+	Zf(prng_init)(&rc, rng);
+	return gibbs_sample_fg(&rc, f, g, logn, tmp);
+#else
+	return gibbs_sample_fg(rng, f, g, logn, tmp);
+#endif
+}
+
+#endif /* FALCON_GIBBS_KEYGEN */
 
 /* see falcon.h */
 void
@@ -4191,10 +4588,24 @@ Zf(keygen)(inner_shake256_context *rng,
 	 * NTRU equation solver requires it).
 	 */
 	for (;;) {
+		int lim;
+
+#if defined FALCON_GIBBS_KEYGEN && FALCON_GIBBS_KEYGEN
+		(void)lim;
+		(void)u;
+		/*
+		 * Gibbs sampler path: produces f and g via Algorithm 2
+		 * from the Gibbs paper, including its own norm gate.
+		 * On failure it returns 0 and we retry from a fresh seed.
+		 */
+		if (!gibbs_sample_fg(rc, f, g, logn, tmp)) {
+			continue;
+		}
+		goto gibbs_post_fg;
+#else
 		fpr *rt1, *rt2, *rt3;
 		fpr bnorm;
 		uint32_t normf, normg, norm;
-		int lim;
 
 		/*
 		 * The poly_small_mkgauss() function makes sure
@@ -4269,11 +4680,15 @@ Zf(keygen)(inner_shake256_context *rng,
 		if (!fpr_lt(bnorm, fpr_bnorm_max)) {
 			continue;
 		}
+#endif /* !FALCON_GIBBS_KEYGEN */
 
 		/*
 		 * Compute public key h = g/f mod X^N+1 mod q. If this
 		 * fails, we must restart.
 		 */
+#if defined FALCON_GIBBS_KEYGEN && FALCON_GIBBS_KEYGEN
+	gibbs_post_fg:
+#endif
 		if (h == NULL) {
 			h2 = (uint16_t *)tmp;
 			tmp2 = h2 + n;

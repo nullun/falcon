@@ -53,10 +53,12 @@ LIBS = #-lm
 
 OBJ = codec.o common.o deterministic.o deterministic512.o falcon.o fft.o fpr.o keygen.o rng.o shake.o sign.o vrfy.o
 
-all: tests/test_deterministic tests/test_deterministic512 tests/test_falcon tests/speed
+OBJ_NO_KEYGEN = codec.o common.o deterministic.o deterministic512.o falcon.o fft.o fpr.o rng.o shake.o sign.o vrfy.o
+
+all: tests/test_deterministic tests/test_deterministic512 tests/test_falcon tests/speed tests/test_fpr_trig tests/test_gibbs
 
 clean:
-	-rm -f $(OBJ) tests/test_deterministic tests/test_deterministic.o tests/test_deterministic512 tests/test_deterministic512.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o
+	-rm -f $(OBJ) tests/test_deterministic tests/test_deterministic.o tests/test_deterministic512 tests/test_deterministic512.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o tests/test_fpr_trig tests/test_fpr_trig.o tests/test_gibbs tests/test_gibbs.o keygen_gibbs.o
 
 tests/test_deterministic: tests/test_deterministic.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_deterministic tests/test_deterministic.o $(OBJ) $(LIBS)
@@ -114,6 +116,21 @@ tests/test_deterministic.o: tests/test_deterministic.c deterministic.h falcon.h 
 
 tests/test_deterministic512.o: tests/test_deterministic512.c deterministic512.h falcon.h config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o tests/test_deterministic512.o tests/test_deterministic512.c
+
+tests/test_fpr_trig.o: tests/test_fpr_trig.c config.h inner.h fpr.h
+	$(CC) $(CFLAGS) -c -o tests/test_fpr_trig.o tests/test_fpr_trig.c
+
+tests/test_fpr_trig: tests/test_fpr_trig.o $(OBJ)
+	$(LD) $(LDFLAGS) -o tests/test_fpr_trig tests/test_fpr_trig.o $(OBJ) $(LIBS) -lm
+
+tests/test_gibbs.o: tests/test_gibbs.c config.h inner.h fpr.h
+	$(CC) $(CFLAGS) -DFALCON_GIBBS_KEYGEN=1 -c -o tests/test_gibbs.o tests/test_gibbs.c
+
+tests/test_gibbs: tests/test_gibbs.o keygen_gibbs.o $(OBJ_NO_KEYGEN)
+	$(LD) $(LDFLAGS) -o tests/test_gibbs tests/test_gibbs.o keygen_gibbs.o $(OBJ_NO_KEYGEN) $(LIBS) -lm
+
+keygen_gibbs.o: keygen.c config.h inner.h fpr.h
+	$(CC) $(CFLAGS) -DFALCON_GIBBS_KEYGEN=1 -c -o keygen_gibbs.o keygen.c
 
 vrfy.o: vrfy.c config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o vrfy.o vrfy.c
