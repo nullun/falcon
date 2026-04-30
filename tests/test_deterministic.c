@@ -62,7 +62,7 @@ hextobin(uint8_t *buf, size_t max_len, const char *src)
 	}
 }
 
-uint8_t sigs_ct[NUM_KATS][FALCON_DET1024_SIG_CT_SIZE];
+uint8_t sigs_ct[NUM_KATS][FALCON_DET1024_SIG_CT_SIZE] = {{0}};
 
 void test_inner(size_t data_len) {
 	uint8_t pubkey[FALCON_DET1024_PUBKEY_SIZE];
