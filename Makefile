@@ -55,10 +55,12 @@ OBJ = codec.o common.o deterministic.o deterministic512.o falcon.o fft.o fpr.o k
 
 OBJ_NO_KEYGEN = codec.o common.o deterministic.o deterministic512.o falcon.o fft.o fpr.o rng.o shake.o sign.o vrfy.o
 
-all: tests/test_deterministic tests/test_deterministic512 tests/test_falcon tests/speed tests/test_fpr_trig tests/test_gibbs
+OBJ_GIBBS = codec.o common.o deterministic.o deterministic512.o falcon.o fft.o fpr.o keygen_gibbs.o rng.o shake.o sign.o vrfy.o
+
+all: tests/test_deterministic tests/test_deterministic512 tests/test_falcon tests/speed tests/test_fpr_trig tests/test_gibbs tests/test_gibbs_det512
 
 clean:
-	-rm -f $(OBJ) tests/test_deterministic tests/test_deterministic.o tests/test_deterministic512 tests/test_deterministic512.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o tests/test_fpr_trig tests/test_fpr_trig.o tests/test_gibbs tests/test_gibbs.o keygen_gibbs.o
+	-rm -f $(OBJ) tests/test_deterministic tests/test_deterministic.o tests/test_deterministic512 tests/test_deterministic512.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o tests/test_fpr_trig tests/test_fpr_trig.o tests/test_gibbs tests/test_gibbs.o tests/test_gibbs_det512 tests/test_gibbs_det512.o keygen_gibbs.o
 
 tests/test_deterministic: tests/test_deterministic.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_deterministic tests/test_deterministic.o $(OBJ) $(LIBS)
@@ -131,6 +133,12 @@ tests/test_gibbs: tests/test_gibbs.o keygen_gibbs.o $(OBJ_NO_KEYGEN)
 
 keygen_gibbs.o: keygen.c config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -DFALCON_GIBBS_KEYGEN=1 -c -o keygen_gibbs.o keygen.c
+
+tests/test_gibbs_det512.o: tests/test_gibbs_det512.c deterministic512.h falcon.h config.h inner.h fpr.h
+	$(CC) $(CFLAGS) -DFALCON_GIBBS_KEYGEN=1 -c -o tests/test_gibbs_det512.o tests/test_gibbs_det512.c
+
+tests/test_gibbs_det512: tests/test_gibbs_det512.o $(OBJ_GIBBS)
+	$(LD) $(LDFLAGS) -o tests/test_gibbs_det512 tests/test_gibbs_det512.o $(OBJ_GIBBS) $(LIBS) -lm
 
 vrfy.o: vrfy.c config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o vrfy.o vrfy.c

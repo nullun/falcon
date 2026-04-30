@@ -68,6 +68,22 @@ WARNING
   security, but the encoding and verification differ from the NIST
   standard.  Do not use in production.
 
+Integration with deterministic-512 (det512)
+
+  The Gibbs keygen is a drop-in replacement for the Falcon-512 key
+  generation step.  All other components — deterministic signing,
+  verification, CT conversion, and auxiliary functions in
+  deterministic512.h — work unchanged with Gibbs-generated keys.  The
+  MCU workbuf APIs (see EMBEDDED USAGE below) are also compatible.
+
+  Build and run the integration test:
+
+    make tests/test_gibbs_det512 && ./tests/test_gibbs_det512
+
+  This exercises the full pipeline: Gibbs keygen → det512 compressed
+  sign → det512 verify → CT conversion → CT verify, using both the
+  convenience wrappers and the workbuf API variants.
+
 
 BASE IMPLEMENTATION
 -------------------
@@ -198,6 +214,12 @@ deterministic det1024 wrapper in "deterministic.h":
   - falcon_det1024_convert_compressed_to_ct_with_workbuf()
   - falcon_det1024_hash_to_point_coeffs_with_workbuf()
   - falcon_det1024_s1_coeffs_with_workbuf()
+
+A parallel interface exists for deterministic Falcon-512 (det512) in
+"deterministic512.h", including workbuf entry points for keygen,
+signing, verification, CT conversion, hashing, and s1 computation.
+The det512 layer is compatible with the Gibbs-sampler keygen path
+(see GIBBS SAMPLER section above).
 
 Each such function has a corresponding FALCON_DET1024_WORKBUF_*_SIZE
 macro so that applications can place the work area in static RAM,

@@ -7,4 +7,5 @@ tests/test_deterministic512
 tests/test_falcon
 tests/test_fpr_trig
 tests/test_gibbs
+tests/test_gibbs_det512
 tests/speed
