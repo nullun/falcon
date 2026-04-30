@@ -1,0 +1,8 @@
+# Falcon build artefacts
+*.o
+
+# Test binaries (built without .o extension)
+tests/test_deterministic
+tests/test_deterministic512
+tests/test_falcon
+tests/speed
