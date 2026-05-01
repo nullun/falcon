@@ -112,11 +112,17 @@ which is documented in the "falcon.h" file. This is the only file that
 an external application needs to use.
 
 For embedded targets, the deterministic det1024 wrappers for key
-generation and signing now also have caller-buffer variants in
+generation, signing, verification, CT conversion, and helper
+operations now also have caller-buffer variants in
 "deterministic.h":
 
   - falcon_det1024_keygen_with_workbuf()
   - falcon_det1024_sign_compressed_with_workbuf()
+  - falcon_det1024_verify_compressed_with_workbuf()
+  - falcon_det1024_verify_ct_with_workbuf()
+  - falcon_det1024_convert_compressed_to_ct_with_workbuf()
+  - falcon_det1024_hash_to_point_coeffs_with_workbuf()
+  - falcon_det1024_s1_coeffs_with_workbuf()
 
 The corresponding FALCON_DET1024_WORKBUF_*_SIZE macros let the caller
 place the temporary storage in static RAM or another caller-managed

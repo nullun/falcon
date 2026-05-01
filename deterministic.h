@@ -21,6 +21,11 @@ extern "C" {
 // Work-buffer sizes for the MCU-friendly _with_workbuf entry points.
 #define FALCON_DET1024_WORKBUF_KEYGEN_SIZE FALCON_TMPSIZE_KEYGEN(FALCON_DET1024_LOGN)
 #define FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE (FALCON_TMPSIZE_SIGNDYN(FALCON_DET1024_LOGN) + FALCON_SIG_COMPRESSED_MAXSIZE(FALCON_DET1024_LOGN))
+#define FALCON_DET1024_WORKBUF_VERIFY_COMPRESSED_SIZE (FALCON_TMPSIZE_VERIFY(FALCON_DET1024_LOGN) + FALCON_SIG_COMPRESSED_MAXSIZE(FALCON_DET1024_LOGN))
+#define FALCON_DET1024_WORKBUF_VERIFY_CT_SIZE (FALCON_TMPSIZE_VERIFY(FALCON_DET1024_LOGN) + FALCON_SIG_CT_SIZE(FALCON_DET1024_LOGN))
+#define FALCON_DET1024_WORKBUF_CONVERT_TO_CT_SIZE ((((size_t)1 << FALCON_DET1024_LOGN) * sizeof(int16_t)) + sizeof(int16_t) - 1)
+#define FALCON_DET1024_WORKBUF_HASH_TO_POINT_SIZE (((size_t)1 << FALCON_DET1024_LOGN) * 2u)
+#define FALCON_DET1024_WORKBUF_S1COEFFS_SIZE (2u * (((size_t)1 << FALCON_DET1024_LOGN) * sizeof(uint16_t)) + sizeof(uint16_t) - 1)
 
 // The header bytes for deterministic mode correspond to the headers
 // for ordinary compressed/CT format, but with n=1024 and MSB=1:
@@ -108,6 +113,15 @@ int falcon_det1024_verify_compressed(const void *sig, size_t sig_len,
 	const void *pubkey, const void *data, size_t data_len);
 
 /*
+ * MCU-oriented equivalent of falcon_det1024_verify_compressed(). The
+ * caller must provide a work buffer of at least
+ * FALCON_DET1024_WORKBUF_VERIFY_COMPRESSED_SIZE bytes.
+ */
+int falcon_det1024_verify_compressed_with_workbuf(const void *sig,
+	size_t sig_len, const void *pubkey, const void *data, size_t data_len,
+	void *workbuf, size_t workbuf_len);
+
+/*
  * Verify the CT-format, deterministic-mode (det1024) signature
  * provided in sig[] (of length FALCON_DET1024_SIG_CT_SIZE bytes) with
  * respect to the public key provided in pubkey[] (of length
@@ -124,6 +138,15 @@ int falcon_det1024_verify_ct(const void *sig,
 	const void *pubkey, const void *data, size_t data_len);
 
 /*
+ * MCU-oriented equivalent of falcon_det1024_verify_ct(). The caller
+ * must provide a work buffer of at least
+ * FALCON_DET1024_WORKBUF_VERIFY_CT_SIZE bytes.
+ */
+int falcon_det1024_verify_ct_with_workbuf(const void *sig,
+	const void *pubkey, const void *data, size_t data_len,
+	void *workbuf, size_t workbuf_len);
+
+/*
  * Convert the compressed-format, deterministic-mode (det1024)
  * signature in sig_compressed (of length sig_compressed_len bytes) to
  * CT format. The resulting CT signature is written to sig_ct (of
@@ -133,6 +156,16 @@ int falcon_det1024_verify_ct(const void *sig,
  */
 int falcon_det1024_convert_compressed_to_ct(void *sig_ct,
 	const void *sig_compressed, size_t sig_compressed_len);
+
+/*
+ * MCU-oriented equivalent of
+ * falcon_det1024_convert_compressed_to_ct(). The caller must provide
+ * a work buffer of at least FALCON_DET1024_WORKBUF_CONVERT_TO_CT_SIZE
+ * bytes.
+ */
+int falcon_det1024_convert_compressed_to_ct_with_workbuf(void *sig_ct,
+	const void *sig_compressed, size_t sig_compressed_len,
+	void *workbuf, size_t workbuf_len);
 
 /*
  * Returns the salt version of a signature, in either compressed or CT
@@ -162,6 +195,15 @@ int falcon_det1024_pubkey_coeffs(uint16_t *h, const void *pubkey);
 void falcon_det1024_hash_to_point_coeffs(uint16_t *c, const void *data, size_t data_len, uint8_t salt_version);
 
 /*
+ * MCU-oriented equivalent of falcon_det1024_hash_to_point_coeffs().
+ * The caller must provide a work buffer of at least
+ * FALCON_DET1024_WORKBUF_HASH_TO_POINT_SIZE bytes.
+ */
+int falcon_det1024_hash_to_point_coeffs_with_workbuf(uint16_t *c,
+	const void *data, size_t data_len, uint8_t salt_version,
+	void *workbuf, size_t workbuf_len);
+
+/*
  * Unpack a det1024 signature in CT format to the vector of polynomial
  * coefficients of the associated ring element s_2.
  *
@@ -183,6 +225,15 @@ int falcon_det1024_s2_coeffs(int16_t *s2, const void* sig);
  * signature corresponding to s_2).
  */
 int falcon_det1024_s1_coeffs(int16_t *s1, const uint16_t *h, const uint16_t *c, const int16_t *s2);
+
+/*
+ * MCU-oriented equivalent of falcon_det1024_s1_coeffs(). The caller
+ * must provide a work buffer of at least
+ * FALCON_DET1024_WORKBUF_S1COEFFS_SIZE bytes.
+ */
+int falcon_det1024_s1_coeffs_with_workbuf(int16_t *s1, const uint16_t *h,
+	const uint16_t *c, const int16_t *s2, void *workbuf,
+	size_t workbuf_len);
 
 #ifdef __cplusplus
 }

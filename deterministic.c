@@ -19,6 +19,14 @@ static int falcon_det1024_require_workbuf(void *workbuf, size_t workbuf_len,
 	return 0;
 }
 
+static void *falcon_det1024_align_ptr(void *ptr, size_t align) {
+	uintptr_t p;
+
+	p = (uintptr_t)ptr;
+	p = (p + align - 1) & ~(uintptr_t)(align - 1);
+	return (void *)p;
+}
+
 int falcon_det1024_keygen_with_workbuf(shake256_context *rng,
 	void *privkey, void *pubkey, void *workbuf, size_t workbuf_len) {
 	int r;
@@ -116,11 +124,20 @@ int falcon_det1024_sign_compressed(void *sig, size_t *sig_len,
 		privkey, data, data_len, workbuf, sizeof workbuf);
 }
 
-int falcon_det1024_convert_compressed_to_ct(void *sig_ct,
-        const void *sig_compressed, size_t sig_compressed_len) {
-
-	int16_t coeffs[1 << FALCON_DET1024_LOGN];
+int falcon_det1024_convert_compressed_to_ct_with_workbuf(void *sig_ct,
+        const void *sig_compressed, size_t sig_compressed_len,
+	void *workbuf, size_t workbuf_len) {
+	int16_t *coeffs;
 	size_t v;
+	int r;
+
+	r = falcon_det1024_require_workbuf(workbuf, workbuf_len,
+		FALCON_DET1024_WORKBUF_CONVERT_TO_CT_SIZE);
+	if (r != 0) {
+		return r;
+	}
+
+	coeffs = falcon_det1024_align_ptr(workbuf, sizeof *coeffs);
 
 	if (((uint8_t*)sig_compressed)[0] != FALCON_DET1024_SIG_COMPRESSED_HEADER) {
 		return FALCON_ERR_BADSIG;
@@ -146,6 +163,14 @@ int falcon_det1024_convert_compressed_to_ct(void *sig_ct,
 	return 0;
 }
 
+int falcon_det1024_convert_compressed_to_ct(void *sig_ct,
+        const void *sig_compressed, size_t sig_compressed_len) {
+	uint8_t workbuf[FALCON_DET1024_WORKBUF_CONVERT_TO_CT_SIZE];
+
+	return falcon_det1024_convert_compressed_to_ct_with_workbuf(sig_ct,
+		sig_compressed, sig_compressed_len, workbuf, sizeof workbuf);
+}
+
 // Construct the corresponding salted signature from an unsalted one.
 void falcon_det1024_resalt(uint8_t *salted_sig,
         const uint8_t *unsalted_sig, size_t unsalted_sig_len) {
@@ -155,11 +180,21 @@ void falcon_det1024_resalt(uint8_t *salted_sig,
 	memcpy(salted_sig+41, unsalted_sig+2, unsalted_sig_len-2);
 }
 
-int falcon_det1024_verify_compressed(const void *sig, size_t sig_len,
-        const void *pubkey, const void *data, size_t data_len) {
+int falcon_det1024_verify_compressed_with_workbuf(const void *sig,
+        size_t sig_len, const void *pubkey, const void *data, size_t data_len,
+	void *workbuf, size_t workbuf_len) {
+	uint8_t *tmpvv;
+	uint8_t *salted_sig;
+	int r;
 
-	uint8_t tmpvv[FALCON_DET1024_TMPSIZE_VERIFY];
-	uint8_t salted_sig[FALCON_DET1024_SALTED_SIG_COMPRESSED_MAXSIZE];
+	r = falcon_det1024_require_workbuf(workbuf, workbuf_len,
+		FALCON_DET1024_WORKBUF_VERIFY_COMPRESSED_SIZE);
+	if (r != 0) {
+		return r;
+	}
+
+	tmpvv = workbuf;
+	salted_sig = tmpvv + FALCON_DET1024_TMPSIZE_VERIFY;
 
 	if (sig_len < 2) {
 		return FALCON_ERR_BADSIG;
@@ -184,11 +219,29 @@ int falcon_det1024_verify_compressed(const void *sig, size_t sig_len,
 		tmpvv, FALCON_DET1024_TMPSIZE_VERIFY);
 }
 
-int falcon_det1024_verify_ct(const void *sig,
+int falcon_det1024_verify_compressed(const void *sig, size_t sig_len,
         const void *pubkey, const void *data, size_t data_len) {
+	uint8_t workbuf[FALCON_DET1024_WORKBUF_VERIFY_COMPRESSED_SIZE];
 
-	uint8_t tmpvv[FALCON_DET1024_TMPSIZE_VERIFY];
-	uint8_t salted_sig[FALCON_DET1024_SALTED_SIG_CT_SIZE];
+	return falcon_det1024_verify_compressed_with_workbuf(sig, sig_len,
+		pubkey, data, data_len, workbuf, sizeof workbuf);
+}
+
+int falcon_det1024_verify_ct_with_workbuf(const void *sig,
+        const void *pubkey, const void *data, size_t data_len,
+	void *workbuf, size_t workbuf_len) {
+	uint8_t *tmpvv;
+	uint8_t *salted_sig;
+	int r;
+
+	r = falcon_det1024_require_workbuf(workbuf, workbuf_len,
+		FALCON_DET1024_WORKBUF_VERIFY_CT_SIZE);
+	if (r != 0) {
+		return r;
+	}
+
+	tmpvv = workbuf;
+	salted_sig = tmpvv + FALCON_DET1024_TMPSIZE_VERIFY;
 
 	if (((uint8_t*)sig)[0] != FALCON_DET1024_SIG_CT_HEADER) {
 		return FALCON_ERR_BADSIG;
@@ -199,6 +252,14 @@ int falcon_det1024_verify_ct(const void *sig,
 	return falcon_verify(salted_sig, FALCON_DET1024_SALTED_SIG_CT_SIZE, FALCON_SIG_CT,
 		pubkey, FALCON_DET1024_PUBKEY_SIZE, data, data_len,
 		tmpvv, FALCON_DET1024_TMPSIZE_VERIFY);
+}
+
+int falcon_det1024_verify_ct(const void *sig,
+        const void *pubkey, const void *data, size_t data_len) {
+	uint8_t workbuf[FALCON_DET1024_WORKBUF_VERIFY_CT_SIZE];
+
+	return falcon_det1024_verify_ct_with_workbuf(sig, pubkey, data, data_len,
+		workbuf, sizeof workbuf);
 }
 
 int falcon_det1024_get_salt_version(const void* sig) {
@@ -219,18 +280,35 @@ int falcon_det1024_pubkey_coeffs(uint16_t *h, const void *pubkey) {
 	return 0;
 }
 
-void falcon_det1024_hash_to_point_coeffs(uint16_t *c, const void *data, size_t data_len, uint8_t salt_version) {
+int falcon_det1024_hash_to_point_coeffs_with_workbuf(uint16_t *c,
+	const void *data, size_t data_len, uint8_t salt_version,
+	void *workbuf, size_t workbuf_len) {
 	uint8_t salt[40];
-	falcon_det1024_write_salt(salt, salt_version);
-
 	shake256_context ctx;
+	int r;
+
+	r = falcon_det1024_require_workbuf(workbuf, workbuf_len,
+		FALCON_DET1024_WORKBUF_HASH_TO_POINT_SIZE);
+	if (r != 0) {
+		return r;
+	}
+
+	falcon_det1024_write_salt(salt, salt_version);
 	shake256_init(&ctx);
 	shake256_inject(&ctx, salt, 40);
 	shake256_inject(&ctx, data, data_len);
 	shake256_flip(&ctx);
 
-	uint8_t tmp[(1<<FALCON_DET1024_LOGN)*2];
-	Zf(hash_to_point_ct)((inner_shake256_context *)&ctx, c, FALCON_DET1024_LOGN, tmp);
+	Zf(hash_to_point_ct)((inner_shake256_context *)&ctx, c,
+		FALCON_DET1024_LOGN, workbuf);
+	return 0;
+}
+
+void falcon_det1024_hash_to_point_coeffs(uint16_t *c, const void *data, size_t data_len, uint8_t salt_version) {
+	uint8_t tmp[FALCON_DET1024_WORKBUF_HASH_TO_POINT_SIZE];
+
+	(void)falcon_det1024_hash_to_point_coeffs_with_workbuf(c,
+		data, data_len, salt_version, tmp, sizeof tmp);
 }
 
 int falcon_det1024_s2_coeffs(int16_t *s2, const void* sig) {
@@ -249,19 +327,30 @@ int falcon_det1024_s2_coeffs(int16_t *s2, const void* sig) {
 	return 0;
 }
 
-int falcon_det1024_s1_coeffs(int16_t *s1, const uint16_t *h, const uint16_t *c, const int16_t *s2) {
+int falcon_det1024_s1_coeffs_with_workbuf(int16_t *s1,
+	const uint16_t *h, const uint16_t *c, const int16_t *s2,
+	void *workbuf, size_t workbuf_len) {
 	unsigned logn = FALCON_DET1024_LOGN;
 	size_t u, n;
-	n = (size_t)1<<logn;
+	uint16_t *h_ntt;
+	uint16_t *tt;
+	int r;
 
-	uint16_t h_ntt[1<<FALCON_DET1024_LOGN];
+	r = falcon_det1024_require_workbuf(workbuf, workbuf_len,
+		FALCON_DET1024_WORKBUF_S1COEFFS_SIZE);
+	if (r != 0) {
+		return r;
+	}
+
+	n = (size_t)1<<logn;
+	h_ntt = falcon_det1024_align_ptr(workbuf, sizeof *h_ntt);
+	tt = h_ntt + n;
 	for (u = 0; u < n; u++) {
 		h_ntt[u] = h[u];
 	}
 	Zf(to_ntt_monty)(h_ntt, logn);
 
 	// Copied from verify_raw.
-	uint16_t tt[1<<FALCON_DET1024_LOGN];
 	/*
 	 * Reduce s2 elements modulo q ([0..q-1] range).
 	 */
@@ -305,4 +394,11 @@ int falcon_det1024_s1_coeffs(int16_t *s1, const uint16_t *h, const uint16_t *c, 
 	}
 
 	return 0;
+}
+
+int falcon_det1024_s1_coeffs(int16_t *s1, const uint16_t *h, const uint16_t *c, const int16_t *s2) {
+	uint8_t workbuf[FALCON_DET1024_WORKBUF_S1COEFFS_SIZE];
+
+	return falcon_det1024_s1_coeffs_with_workbuf(s1, h, c, s2,
+		workbuf, sizeof workbuf);
 }
