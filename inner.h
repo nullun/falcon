@@ -125,11 +125,19 @@
 
 // yyySUPERCOP+0
 /*
- * Enable ARM assembly on any ARMv7m platform (if it was not done before).
+ * Enable ARM assembly on Cortex-M targets that provide single-cycle,
+ * constant-time umull/umlal/clz and the Thumb-2 base ISA used by the
+ * hand-written routines in fpr.c and shake.c. This covers:
+ *   - ARMv7E-M (Cortex-M4/M7) with the DSP extension
+ *   - ARMv8-M Mainline (Cortex-M33/M55/M85), where the required
+ *     multiply/clz instructions are part of the base ISA and are
+ *     specified as single-cycle constant-time.
+ * The macro name is kept as FALCON_ASM_CORTEXM4 for compatibility.
  */
 #ifndef FALCON_ASM_CORTEXM4
-#if (defined __ARM_ARCH_7EM__ && __ARM_ARCH_7EM__) \
-	&& (defined __ARM_FEATURE_DSP && __ARM_FEATURE_DSP)
+#if ((defined __ARM_ARCH_7EM__ && __ARM_ARCH_7EM__) \
+		&& (defined __ARM_FEATURE_DSP && __ARM_FEATURE_DSP)) \
+	|| (defined __ARM_ARCH_8M_MAIN__ && __ARM_ARCH_8M_MAIN__)
 #define FALCON_ASM_CORTEXM4   1
 #else
 #define FALCON_ASM_CORTEXM4   0

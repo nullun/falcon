@@ -144,8 +144,14 @@
  * While we are not aware of any way that the assembly code could lead
  * to non-determinism, caution should be exercised if it is ever under
  * consideration for usage. (At minimum, check KATs.)
+ *
+ * Guarded with #ifndef so a consumer that has audited the asm path
+ * (e.g. an MCU firmware build) can opt back in via -DFALCON_ASM_CORTEXM4=1
+ * or by relying on the autodetection in inner.h.
  */
+#ifndef FALCON_ASM_CORTEXM4
 #define FALCON_ASM_CORTEXM4  0
+#endif
 
 
 /*
