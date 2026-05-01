@@ -111,6 +111,17 @@ Applications that want to use Falcon normally work on the external API,
 which is documented in the "falcon.h" file. This is the only file that
 an external application needs to use.
 
+For embedded targets, the deterministic det1024 wrappers for key
+generation and signing now also have caller-buffer variants in
+"deterministic.h":
+
+  - falcon_det1024_keygen_with_workbuf()
+  - falcon_det1024_sign_compressed_with_workbuf()
+
+The corresponding FALCON_DET1024_WORKBUF_*_SIZE macros let the caller
+place the temporary storage in static RAM or another caller-managed
+region instead of on the stack.
+
 For research purposes, the inner API is documented in "inner.h". This
 API gives access to many internal functions that perform some elementary
 operations used in Falcon. That API also has some non-obvious
