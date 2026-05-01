@@ -64,13 +64,27 @@ hextobin(uint8_t *buf, size_t max_len, const char *src)
 
 static uint8_t sigs_ct[NUM_KATS][FALCON_DET1024_SIG_CT_SIZE];
 
+static void
+check_size_error(const char *name, size_t data_len, int r)
+{
+	if (r != FALCON_ERR_SIZE) {
+		fprintf(stderr, "%s (data_len=%zu) returned %d, expected %d\n",
+			name, data_len, r, FALCON_ERR_SIZE);
+		exit(EXIT_FAILURE);
+	}
+}
+
 void test_inner(size_t data_len) {
 	uint8_t pubkey[FALCON_DET1024_PUBKEY_SIZE];
 	uint8_t privkey[FALCON_DET1024_PRIVKEY_SIZE];
 	uint8_t sig[FALCON_DET1024_SIG_COMPRESSED_MAXSIZE];
+	uint8_t sig_legacy[FALCON_DET1024_SIG_COMPRESSED_MAXSIZE];
 	size_t sig_len;
+	size_t sig_len_legacy;
 	uint8_t expected_sig[FALCON_DET1024_SIG_COMPRESSED_MAXSIZE];
 	uint8_t data[data_len];
+	uint8_t keygen_workbuf[FALCON_DET1024_WORKBUF_KEYGEN_SIZE];
+	uint8_t sign_workbuf[FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE];
 
 	memset(privkey, 0, FALCON_DET1024_PRIVKEY_SIZE);
 	memset(pubkey, 0, FALCON_DET1024_PUBKEY_SIZE);
@@ -85,14 +99,16 @@ void test_inner(size_t data_len) {
 	char key_seed[8+1];
 	sprintf(key_seed, "key-%04zu", data_len);
 	shake256_init_prng_from_seed(&key_rng, key_seed, 8);
-	int r = falcon_det1024_keygen(&key_rng, privkey, pubkey);
+	int r = falcon_det1024_keygen_with_workbuf(&key_rng, privkey, pubkey,
+		keygen_workbuf, sizeof keygen_workbuf);
 	if (r != 0) {
 		fprintf(stderr, "keygen (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
 	}
 
 	memset(sig, 0, FALCON_DET1024_SIG_COMPRESSED_MAXSIZE);
-	r = falcon_det1024_sign_compressed(sig, &sig_len, privkey, data, data_len);
+	r = falcon_det1024_sign_compressed_with_workbuf(sig, &sig_len,
+		privkey, data, data_len, sign_workbuf, sizeof sign_workbuf);
 	if (r != 0) {
 		fprintf(stderr, "sign_compressed (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
@@ -126,6 +142,60 @@ void test_inner(size_t data_len) {
 	if (r != 0) {
 		fprintf(stderr, "verify_ct (data_len=%zu) failed: %d\n", data_len, r);
 		exit(EXIT_FAILURE);
+	}
+
+	{
+		uint8_t privkey_legacy[FALCON_DET1024_PRIVKEY_SIZE];
+		uint8_t pubkey_legacy[FALCON_DET1024_PUBKEY_SIZE];
+		shake256_context key_rng_legacy;
+
+		shake256_init_prng_from_seed(&key_rng_legacy, key_seed, 8);
+		r = falcon_det1024_keygen(&key_rng_legacy, privkey_legacy, pubkey_legacy);
+		if (r != 0) {
+			fprintf(stderr, "legacy keygen (data_len=%zu) failed: %d\n", data_len, r);
+			exit(EXIT_FAILURE);
+		}
+		if (memcmp(privkey, privkey_legacy, sizeof privkey) != 0
+			|| memcmp(pubkey, pubkey_legacy, sizeof pubkey) != 0)
+		{
+			fprintf(stderr, "legacy keygen mismatch (data_len=%zu)\n", data_len);
+			exit(EXIT_FAILURE);
+		}
+
+		r = falcon_det1024_sign_compressed(sig_legacy, &sig_len_legacy,
+			privkey, data, data_len);
+		if (r != 0) {
+			fprintf(stderr, "legacy sign (data_len=%zu) failed: %d\n", data_len, r);
+			exit(EXIT_FAILURE);
+		}
+		if (sig_len != sig_len_legacy
+			|| memcmp(sig, sig_legacy, sig_len) != 0)
+		{
+			fprintf(stderr, "legacy sign mismatch (data_len=%zu)\n", data_len);
+			exit(EXIT_FAILURE);
+		}
+
+		shake256_init_prng_from_seed(&key_rng_legacy, key_seed, 8);
+		r = falcon_det1024_keygen_with_workbuf(&key_rng_legacy,
+			privkey_legacy, pubkey_legacy, NULL,
+			FALCON_DET1024_WORKBUF_KEYGEN_SIZE);
+		check_size_error("keygen NULL workbuf", data_len, r);
+
+		shake256_init_prng_from_seed(&key_rng_legacy, key_seed, 8);
+		r = falcon_det1024_keygen_with_workbuf(&key_rng_legacy,
+			privkey_legacy, pubkey_legacy, keygen_workbuf,
+			FALCON_DET1024_WORKBUF_KEYGEN_SIZE - 1);
+		check_size_error("keygen short workbuf", data_len, r);
+
+		r = falcon_det1024_sign_compressed_with_workbuf(sig_legacy,
+			&sig_len_legacy, privkey, data, data_len, NULL,
+			FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE);
+		check_size_error("sign NULL workbuf", data_len, r);
+
+		r = falcon_det1024_sign_compressed_with_workbuf(sig_legacy,
+			&sig_len_legacy, privkey, data, data_len, sign_workbuf,
+			FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE - 1);
+		check_size_error("sign short workbuf", data_len, r);
 	}
 
 #ifdef GENERATE_KATS            /* print the KAT */

@@ -11,14 +11,34 @@
 #define FALCON_DET1024_SALTED_SIG_COMPRESSED_MAXSIZE FALCON_SIG_COMPRESSED_MAXSIZE(FALCON_DET1024_LOGN)
 #define FALCON_DET1024_SALTED_SIG_CT_SIZE FALCON_SIG_CT_SIZE(FALCON_DET1024_LOGN)
 
+static int falcon_det1024_require_workbuf(void *workbuf, size_t workbuf_len,
+	size_t need) {
+	if (workbuf == NULL || workbuf_len < need) {
+		return FALCON_ERR_SIZE;
+	}
+	return 0;
+}
 
-int falcon_det1024_keygen(shake256_context *rng, void *privkey, void *pubkey) {
-	uint8_t tmpkg[FALCON_DET1024_TMPSIZE_KEYGEN];
+int falcon_det1024_keygen_with_workbuf(shake256_context *rng,
+	void *privkey, void *pubkey, void *workbuf, size_t workbuf_len) {
+	int r;
 
+	r = falcon_det1024_require_workbuf(workbuf, workbuf_len,
+		FALCON_DET1024_WORKBUF_KEYGEN_SIZE);
+	if (r != 0) {
+		return r;
+	}
 	return falcon_keygen_make(rng, FALCON_DET1024_LOGN,
 		privkey, FALCON_DET1024_PRIVKEY_SIZE,
 		pubkey, FALCON_DET1024_PUBKEY_SIZE,
-		tmpkg, FALCON_DET1024_TMPSIZE_KEYGEN);
+		workbuf, FALCON_DET1024_TMPSIZE_KEYGEN);
+}
+
+int falcon_det1024_keygen(shake256_context *rng, void *privkey, void *pubkey) {
+	uint8_t tmpkg[FALCON_DET1024_WORKBUF_KEYGEN_SIZE];
+
+	return falcon_det1024_keygen_with_workbuf(rng, privkey, pubkey,
+		tmpkg, sizeof tmpkg);
 }
 
 // Domain separator used to construct the fixed versioned salt string.
@@ -31,17 +51,26 @@ void falcon_det1024_write_salt(uint8_t dst[40], uint8_t salt_version) {
 	memcpy(dst+2, falcon_det1024_salt_rest, 38);
 }
 
-int falcon_det1024_sign_compressed(void *sig, size_t *sig_len,
-        const void *privkey, const void *data, size_t data_len) {
-
+int falcon_det1024_sign_compressed_with_workbuf(void *sig, size_t *sig_len,
+        const void *privkey, const void *data, size_t data_len,
+	void *workbuf, size_t workbuf_len) {
 	shake256_context detrng;
 	shake256_context hd;
-	uint8_t tmpsd[FALCON_DET1024_TMPSIZE_SIGNDYN];
+	uint8_t *tmpsd;
 	uint8_t logn[1] = {FALCON_DET1024_LOGN};
 	uint8_t salt[40];
+	uint8_t *saltedsig;
+	int r;
 
+	r = falcon_det1024_require_workbuf(workbuf, workbuf_len,
+		FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE);
+	if (r != 0) {
+		return r;
+	}
+
+	tmpsd = workbuf;
+	saltedsig = tmpsd + FALCON_DET1024_TMPSIZE_SIGNDYN;
 	size_t saltedsig_len = FALCON_DET1024_SALTED_SIG_COMPRESSED_MAXSIZE;
-	uint8_t saltedsig[FALCON_DET1024_SALTED_SIG_COMPRESSED_MAXSIZE];
 
 	if (falcon_get_logn(privkey, FALCON_DET1024_PRIVKEY_SIZE) != FALCON_DET1024_LOGN) {
 		return FALCON_ERR_FORMAT;
@@ -61,7 +90,7 @@ int falcon_det1024_sign_compressed(void *sig, size_t *sig_len,
 	shake256_inject(&hd, salt, 40);
 	shake256_inject(&hd, data, data_len);
 
-	int r = falcon_sign_dyn_finish(&detrng, saltedsig, &saltedsig_len,
+	r = falcon_sign_dyn_finish(&detrng, saltedsig, &saltedsig_len,
 		FALCON_SIG_COMPRESSED, privkey, FALCON_DET1024_PRIVKEY_SIZE,
 		&hd, salt, tmpsd, FALCON_DET1024_TMPSIZE_SIGNDYN);
 	if (r != 0) {
@@ -77,6 +106,14 @@ int falcon_det1024_sign_compressed(void *sig, size_t *sig_len,
 	*sig_len = saltedsig_len-40+1;
 
 	return 0;
+}
+
+int falcon_det1024_sign_compressed(void *sig, size_t *sig_len,
+        const void *privkey, const void *data, size_t data_len) {
+	uint8_t workbuf[FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE];
+
+	return falcon_det1024_sign_compressed_with_workbuf(sig, sig_len,
+		privkey, data, data_len, workbuf, sizeof workbuf);
 }
 
 int falcon_det1024_convert_compressed_to_ct(void *sig_ct,

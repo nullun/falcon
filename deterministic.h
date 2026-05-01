@@ -18,6 +18,10 @@ extern "C" {
 #define FALCON_DET1024_SIG_COMPRESSED_MAXSIZE FALCON_SIG_COMPRESSED_MAXSIZE(FALCON_DET1024_LOGN)-40+1
 #define FALCON_DET1024_SIG_CT_SIZE FALCON_SIG_CT_SIZE(FALCON_DET1024_LOGN)-40+1
 
+// Work-buffer sizes for the MCU-friendly _with_workbuf entry points.
+#define FALCON_DET1024_WORKBUF_KEYGEN_SIZE FALCON_TMPSIZE_KEYGEN(FALCON_DET1024_LOGN)
+#define FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE (FALCON_TMPSIZE_SIGNDYN(FALCON_DET1024_LOGN) + FALCON_SIG_COMPRESSED_MAXSIZE(FALCON_DET1024_LOGN))
+
 // The header bytes for deterministic mode correspond to the headers
 // for ordinary compressed/CT format, but with n=1024 and MSB=1:
 #define FALCON_DET1024_SIG_COMPRESSED_HEADER (0x3A | 0x80)
@@ -46,6 +50,14 @@ extern "C" {
 int falcon_det1024_keygen(shake256_context *rng, void *privkey, void *pubkey);
 
 /*
+ * MCU-oriented equivalent of falcon_det1024_keygen(). The caller must
+ * provide a work buffer of at least
+ * FALCON_DET1024_WORKBUF_KEYGEN_SIZE bytes.
+ */
+int falcon_det1024_keygen_with_workbuf(shake256_context *rng,
+	void *privkey, void *pubkey, void *workbuf, size_t workbuf_len);
+
+/*
  * Deterministically sign the data provided in buffer data[] (of
  * length data_len bytes), using the private key held in privkey[] (of
  * length FALCON_DET1024_PRIVKEY_SIZE bytes). The resulting
@@ -68,6 +80,15 @@ int falcon_det1024_keygen(shake256_context *rng, void *privkey, void *pubkey);
  */
 int falcon_det1024_sign_compressed(void *sig, size_t *sig_len,
 	const void *privkey, const void *data, size_t data_len);
+
+/*
+ * MCU-oriented equivalent of falcon_det1024_sign_compressed(). The
+ * caller must provide a work buffer of at least
+ * FALCON_DET1024_WORKBUF_SIGN_COMPRESSED_SIZE bytes.
+ */
+int falcon_det1024_sign_compressed_with_workbuf(void *sig, size_t *sig_len,
+	const void *privkey, const void *data, size_t data_len,
+	void *workbuf, size_t workbuf_len);
 
 /*
  * Verify the compressed-format, deterministic-mode (det1024)
