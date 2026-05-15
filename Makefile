@@ -73,7 +73,7 @@ codec.o: codec.c config.h inner.h fpr.h
 common.o: common.c config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o common.o common.c
 
-deterministic.o: deterministic.c deterministic.h falcon.h
+deterministic.o: deterministic.c deterministic.h deterministic_impl.h falcon.h
 	$(CC) $(CFLAGS) -c -o deterministic.o deterministic.c
 
 falcon.o: falcon.c falcon.h config.h inner.h fpr.h
@@ -103,7 +103,7 @@ tests/speed.o: tests/speed.c falcon.h
 tests/test_falcon.o: tests/test_falcon.c falcon.h config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o tests/test_falcon.o tests/test_falcon.c
 
-tests/test_deterministic.o: tests/test_deterministic.c deterministic.h falcon.h config.h inner.h fpr.h
+tests/test_deterministic.o: tests/test_deterministic.c tests/test_deterministic_impl.h tests/test_deterministic_kat.h deterministic.h falcon.h config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o tests/test_deterministic.o tests/test_deterministic.c
 
 vrfy.o: vrfy.c config.h inner.h fpr.h

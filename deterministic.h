@@ -1,5 +1,5 @@
-#ifndef FALCON_DET1024_H__
-#define FALCON_DET1024_H__
+#ifndef FALCON_DET_H__
+#define FALCON_DET_H__
 
 #include <stddef.h>
 #include <stdint.h>
@@ -8,6 +8,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* ====================================================================== */
+/* FALCON-DET1024 (n = 1024) public API                                   */
+/* ====================================================================== */
 
 #define FALCON_DET1024_LOGN 10
 #define FALCON_DET1024_PUBKEY_SIZE FALCON_PUBKEY_SIZE(FALCON_DET1024_LOGN)
@@ -19,9 +23,11 @@ extern "C" {
 #define FALCON_DET1024_SIG_CT_SIZE FALCON_SIG_CT_SIZE(FALCON_DET1024_LOGN)-40+1
 
 // The header bytes for deterministic mode correspond to the headers
-// for ordinary compressed/CT format, but with n=1024 and MSB=1:
-#define FALCON_DET1024_SIG_COMPRESSED_HEADER (0x3A | 0x80)
-#define FALCON_DET1024_SIG_CT_HEADER (0x5A | 0x80)
+// for ordinary compressed/CT format (0x30+logn and 0x50+logn
+// respectively; see falcon.c), but with MSB=1 to mark the signature
+// as deterministic:
+#define FALCON_DET1024_SIG_COMPRESSED_HEADER ((0x30 + FALCON_DET1024_LOGN) | 0x80)
+#define FALCON_DET1024_SIG_CT_HEADER         ((0x50 + FALCON_DET1024_LOGN) | 0x80)
 
 // This version should be incremented upon any functional
 // (input-output) changes to the signing algorithm.
@@ -162,6 +168,54 @@ int falcon_det1024_s2_coeffs(int16_t *s2, const void* sig);
  * signature corresponding to s_2).
  */
 int falcon_det1024_s1_coeffs(int16_t *s1, const uint16_t *h, const uint16_t *c, const int16_t *s2);
+
+
+/* ====================================================================== */
+/* FALCON-DET512 (n = 512) public API                                     */
+/*                                                                        */
+/* The det512 functions implement the same algorithm as det1024 with the  */
+/* Falcon parameter n=512 (logn=9) instead of n=1024 (logn=10). They      */
+/* share a single implementation in deterministic.c via the               */
+/* deterministic_impl.h template. See the det1024 documentation above     */
+/* for per-function semantics.                                            */
+/* ====================================================================== */
+
+#define FALCON_DET512_LOGN 9
+#define FALCON_DET512_PUBKEY_SIZE FALCON_PUBKEY_SIZE(FALCON_DET512_LOGN)
+#define FALCON_DET512_PRIVKEY_SIZE FALCON_PRIVKEY_SIZE(FALCON_DET512_LOGN)
+
+#define FALCON_DET512_SIG_COMPRESSED_MAXSIZE FALCON_SIG_COMPRESSED_MAXSIZE(FALCON_DET512_LOGN)-40+1
+#define FALCON_DET512_SIG_CT_SIZE FALCON_SIG_CT_SIZE(FALCON_DET512_LOGN)-40+1
+
+// See FALCON_DET1024_SIG_COMPRESSED_HEADER for the encoding.
+#define FALCON_DET512_SIG_COMPRESSED_HEADER ((0x30 + FALCON_DET512_LOGN) | 0x80)
+#define FALCON_DET512_SIG_CT_HEADER         ((0x50 + FALCON_DET512_LOGN) | 0x80)
+
+#define FALCON_DET512_CURRENT_SALT_VERSION 0
+
+int falcon_det512_keygen(shake256_context *rng, void *privkey, void *pubkey);
+
+int falcon_det512_sign_compressed(void *sig, size_t *sig_len,
+	const void *privkey, const void *data, size_t data_len);
+
+int falcon_det512_verify_compressed(const void *sig, size_t sig_len,
+	const void *pubkey, const void *data, size_t data_len);
+
+int falcon_det512_verify_ct(const void *sig,
+	const void *pubkey, const void *data, size_t data_len);
+
+int falcon_det512_convert_compressed_to_ct(void *sig_ct,
+	const void *sig_compressed, size_t sig_compressed_len);
+
+int falcon_det512_get_salt_version(const void* sig);
+
+int falcon_det512_pubkey_coeffs(uint16_t *h, const void *pubkey);
+
+void falcon_det512_hash_to_point_coeffs(uint16_t *c, const void *data, size_t data_len, uint8_t salt_version);
+
+int falcon_det512_s2_coeffs(int16_t *s2, const void* sig);
+
+int falcon_det512_s1_coeffs(int16_t *s1, const uint16_t *h, const uint16_t *c, const int16_t *s2);
 
 #ifdef __cplusplus
 }
