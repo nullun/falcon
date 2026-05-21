@@ -3,8 +3,13 @@
 #include <string.h>
 
 #include "../falcon.h"
+#include "../config.h"
 #include "../deterministic.h"
+#if FALCON_KG_NTRUGEN
+#include "test_deterministic_kat_ntrugen.h"
+#else
 #include "test_deterministic_kat.h"
+#endif
 
 // number of KATs for compressed format
 #define NUM_KATS 512

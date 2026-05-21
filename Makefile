@@ -53,10 +53,17 @@ LIBS = #-lm
 
 OBJ = codec.o common.o deterministic.o falcon.o fft.o fpr.o keygen.o rng.o shake.o sign.o vrfy.o
 
+# ntrugen keygen objects (for FALCON_KG_NTRUGEN)
+NTOBJ = ntrugen/ng_falcon.o ntrugen/ng_ntru.o ntrugen/ng_poly.o \
+        ntrugen/ng_fxp.o ntrugen/ng_mp31.o ntrugen/ng_zint31.o \
+        ntrugen/ng_gauss.o ntrugen_glue.o
+
+OBJ += $(NTOBJ)
+
 all: tests/test_deterministic tests/test_falcon tests/speed
 
 clean:
-	-rm -f $(OBJ) tests/test_deterministic tests/test_deterministic.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o
+	-rm -f $(OBJ) $(NTOBJ) tests/test_deterministic tests/test_deterministic.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o
 
 tests/test_deterministic: tests/test_deterministic.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_deterministic tests/test_deterministic.o $(OBJ) $(LIBS)
@@ -108,3 +115,28 @@ tests/test_deterministic.o: tests/test_deterministic.c deterministic.h falcon.h 
 
 vrfy.o: vrfy.c config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o vrfy.o vrfy.c
+
+# ntrugen keygen objects
+ntrugen/ng_falcon.o: ntrugen/ng_falcon.c ntrugen/ng_inner.h ntrugen/ng_config.h
+	$(CC) $(CFLAGS) -c -o ntrugen/ng_falcon.o ntrugen/ng_falcon.c
+
+ntrugen/ng_ntru.o: ntrugen/ng_ntru.c ntrugen/ng_inner.h ntrugen/ng_config.h
+	$(CC) $(CFLAGS) -c -o ntrugen/ng_ntru.o ntrugen/ng_ntru.c
+
+ntrugen/ng_poly.o: ntrugen/ng_poly.c ntrugen/ng_inner.h ntrugen/ng_config.h
+	$(CC) $(CFLAGS) -c -o ntrugen/ng_poly.o ntrugen/ng_poly.c
+
+ntrugen/ng_fxp.o: ntrugen/ng_fxp.c ntrugen/ng_inner.h ntrugen/ng_config.h
+	$(CC) $(CFLAGS) -c -o ntrugen/ng_fxp.o ntrugen/ng_fxp.c
+
+ntrugen/ng_mp31.o: ntrugen/ng_mp31.c ntrugen/ng_inner.h ntrugen/ng_config.h
+	$(CC) $(CFLAGS) -c -o ntrugen/ng_mp31.o ntrugen/ng_mp31.c
+
+ntrugen/ng_zint31.o: ntrugen/ng_zint31.c ntrugen/ng_inner.h ntrugen/ng_config.h
+	$(CC) $(CFLAGS) -c -o ntrugen/ng_zint31.o ntrugen/ng_zint31.c
+
+ntrugen/ng_gauss.o: ntrugen/ng_gauss.c ntrugen/ng_inner.h ntrugen/ng_config.h
+	$(CC) $(CFLAGS) -c -o ntrugen/ng_gauss.o ntrugen/ng_gauss.c
+
+ntrugen_glue.o: ntrugen_glue.c ntrugen_glue.h falcon.h config.h inner.h fpr.h ntrugen/ng_inner.h
+	$(CC) $(CFLAGS) -c -o ntrugen_glue.o ntrugen_glue.c

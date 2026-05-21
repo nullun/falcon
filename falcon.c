@@ -31,6 +31,9 @@
 
 #include "falcon.h"
 #include "inner.h"
+#if FALCON_KG_NTRUGEN
+#include "ntrugen_glue.h"
+#endif
 
 /* see falcon.h */
 void
@@ -134,13 +137,6 @@ falcon_keygen_make(
 	void *pubkey, size_t pubkey_len,
 	void *tmp, size_t tmp_len)
 {
-	int8_t *f, *g, *F;
-	uint16_t *h;
-	uint8_t *atmp;
-	size_t n, u, v, sk_len, pk_len;
-	uint8_t *sk, *pk;
-	unsigned oldcw;
-
 	/*
 	 * Check parameters.
 	 */
@@ -153,6 +149,24 @@ falcon_keygen_make(
 	{
 		return FALCON_ERR_SIZE;
 	}
+
+#if FALCON_KG_NTRUGEN
+	/*
+	 * Use ntrugen-based keygen for supported degrees.
+	 * Fall through to default keygen for logn < 2.
+	 */
+	if (logn >= 2) {
+		return falcon_keygen_make_ntrugen(rng, logn,
+			privkey, privkey_len, pubkey, pubkey_len,
+			tmp, tmp_len);
+	}
+#endif
+	int8_t *f, *g, *F;
+	uint16_t *h;
+	uint8_t *atmp;
+	size_t n, u, v, sk_len, pk_len;
+	uint8_t *sk, *pk;
+	unsigned oldcw;
 
 	/*
 	 * Prepare buffers and generate private key.

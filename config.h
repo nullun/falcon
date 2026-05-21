@@ -233,6 +233,22 @@
  */
 
 /*
+ * Use the ntrugen key generation implementation (no floating-point,
+ * fully constant-time). When enabled, keygen uses the ntrugen library
+ * instead of the default floating-point-based implementation.
+ * The key format and all other operations (signing, verification,
+ * key expansion) are unchanged.
+ *
+ * Enabling this option adds the ntrugen/ source files to the build.
+ *
+#define FALCON_KG_NTRUGEN   1
+ */
+
+#ifndef FALCON_KG_NTRUGEN
+#define FALCON_KG_NTRUGEN   0
+#endif
+
+/*
  * Use an explicit OS-provided source of randomness for seeding (for the
  * Zf(get_seed)() function implementation). Three possible sources are
  * defined:

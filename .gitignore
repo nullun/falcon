@@ -1,0 +1,5 @@
+*.o
+tests/test_deterministic
+tests/test_falcon
+tests/speed
+tests/*.o
