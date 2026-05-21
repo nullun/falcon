@@ -153,14 +153,17 @@ falcon_keygen_make(
 #if FALCON_KG_NTRUGEN
 	/*
 	 * Use ntrugen-based keygen for supported degrees.
-	 * Fall through to default keygen for logn < 2.
+	 * When FALCON_KG_NTRUGEN is enabled, this is the only keygen
+	 * path; the old floating-point keygen is not compiled.
 	 */
 	if (logn >= 2) {
 		return falcon_keygen_make_ntrugen(rng, logn,
 			privkey, privkey_len, pubkey, pubkey_len,
 			tmp, tmp_len);
 	}
+	/* logn < 2 falls through */
 #endif
+#if !FALCON_KG_NTRUGEN
 	int8_t *f, *g, *F;
 	uint16_t *h;
 	uint8_t *atmp;
@@ -229,6 +232,15 @@ falcon_keygen_make(
 	}
 
 	return 0;
+#else
+	(void)privkey;
+	(void)privkey_len;
+	(void)pubkey;
+	(void)pubkey_len;
+	(void)tmp;
+	(void)tmp_len;
+	return FALCON_ERR_BADARG;
+#endif
 }
 
 /* see falcon.h */
