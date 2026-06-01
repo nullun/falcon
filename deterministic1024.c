@@ -1,3 +1,4 @@
+/* GENERATED from deterministic.c.tmpl -- DO NOT EDIT. Run "make gen" to regenerate. */
 #include <stdint.h>
 #include <string.h>
 

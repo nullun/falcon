@@ -58,6 +58,31 @@ all: tests/test_deterministic1024 tests/test_falcon tests/speed
 clean:
 	-rm -f $(OBJ) tests/test_deterministic1024 tests/test_deterministic1024.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o
 
+# The deterministic<n>.c sources are generated from the single template
+# deterministic.c.tmpl and committed to the repository, so a normal build just
+# compiles them. Each has a rule below that regenerates it first if the
+# template has been edited; "make gen" regenerates them unconditionally. Run
+# "make gen" after editing scripts/gen_deterministic.sh too: the script is
+# deliberately not a prerequisite of the committed sources, since on a fresh
+# clone git may check it out with a newer timestamp than them and a plain
+# "make" must never rewrite committed sources. "make check-gen" verifies the
+# committed sources are in sync with the template (useful in CI).
+.PHONY: gen check-gen
+gen: deterministic.c.tmpl scripts/gen_deterministic.sh
+	sh scripts/gen_deterministic.sh "$(CC)" . 1024
+
+check-gen: deterministic.c.tmpl scripts/gen_deterministic.sh
+	@tmp=`mktemp -d`; \
+	sh scripts/gen_deterministic.sh "$(CC)" "$$tmp" 1024; \
+	rc=0; \
+	cmp -s "$$tmp/deterministic1024.c" deterministic1024.c || { echo "ERROR: deterministic1024.c is out of sync with deterministic.c.tmpl"; rc=1; }; \
+	rm -rf "$$tmp"; \
+	if [ $$rc -eq 0 ]; then echo "OK: deterministic1024.c is in sync with deterministic.c.tmpl"; else echo "Run 'make gen' to regenerate."; fi; \
+	exit $$rc
+
+deterministic1024.c: deterministic.c.tmpl
+	sh scripts/gen_deterministic.sh "$(CC)" . 1024
+
 tests/test_deterministic1024: tests/test_deterministic1024.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_deterministic1024 tests/test_deterministic1024.o $(OBJ) $(LIBS)
 
