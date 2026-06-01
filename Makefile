@@ -51,12 +51,12 @@ LIBS = #-lm
 
 # =====================================================================
 
-OBJ = codec.o common.o deterministic1024.o falcon.o fft.o fpr.o keygen.o rng.o shake.o sign.o vrfy.o
+OBJ = codec.o common.o deterministic1024.o deterministic512.o falcon.o fft.o fpr.o keygen.o rng.o shake.o sign.o vrfy.o
 
-all: tests/test_deterministic1024 tests/test_falcon tests/speed
+all: tests/test_deterministic1024 tests/test_deterministic512 tests/test_falcon tests/speed
 
 clean:
-	-rm -f $(OBJ) tests/test_deterministic1024 tests/test_deterministic1024.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o
+	-rm -f $(OBJ) tests/test_deterministic1024 tests/test_deterministic1024.o tests/test_deterministic512 tests/test_deterministic512.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o
 
 # The deterministic<n>.c sources are generated from the single template
 # deterministic.c.tmpl and committed to the repository, so a normal build just
@@ -69,22 +69,29 @@ clean:
 # committed sources are in sync with the template (useful in CI).
 .PHONY: gen check-gen
 gen: deterministic.c.tmpl scripts/gen_deterministic.sh
-	sh scripts/gen_deterministic.sh "$(CC)" . 1024
+	sh scripts/gen_deterministic.sh "$(CC)" . 1024 512
 
 check-gen: deterministic.c.tmpl scripts/gen_deterministic.sh
 	@tmp=`mktemp -d`; \
-	sh scripts/gen_deterministic.sh "$(CC)" "$$tmp" 1024; \
+	sh scripts/gen_deterministic.sh "$(CC)" "$$tmp" 1024 512; \
 	rc=0; \
 	cmp -s "$$tmp/deterministic1024.c" deterministic1024.c || { echo "ERROR: deterministic1024.c is out of sync with deterministic.c.tmpl"; rc=1; }; \
+	cmp -s "$$tmp/deterministic512.c" deterministic512.c || { echo "ERROR: deterministic512.c is out of sync with deterministic.c.tmpl"; rc=1; }; \
 	rm -rf "$$tmp"; \
-	if [ $$rc -eq 0 ]; then echo "OK: deterministic1024.c is in sync with deterministic.c.tmpl"; else echo "Run 'make gen' to regenerate."; fi; \
+	if [ $$rc -eq 0 ]; then echo "OK: deterministic1024.c and deterministic512.c are in sync with deterministic.c.tmpl"; else echo "Run 'make gen' to regenerate."; fi; \
 	exit $$rc
 
 deterministic1024.c: deterministic.c.tmpl
 	sh scripts/gen_deterministic.sh "$(CC)" . 1024
 
+deterministic512.c: deterministic.c.tmpl
+	sh scripts/gen_deterministic.sh "$(CC)" . 512
+
 tests/test_deterministic1024: tests/test_deterministic1024.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_deterministic1024 tests/test_deterministic1024.o $(OBJ) $(LIBS)
+
+tests/test_deterministic512: tests/test_deterministic512.o $(OBJ)
+	$(LD) $(LDFLAGS) -o tests/test_deterministic512 tests/test_deterministic512.o $(OBJ) $(LIBS)
 
 tests/test_falcon: tests/test_falcon.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_falcon tests/test_falcon.o $(OBJ) $(LIBS)
@@ -100,6 +107,9 @@ common.o: common.c config.h inner.h fpr.h
 
 deterministic1024.o: deterministic1024.c deterministic.h falcon.h
 	$(CC) $(CFLAGS) -c -o deterministic1024.o deterministic1024.c
+
+deterministic512.o: deterministic512.c deterministic.h falcon.h
+	$(CC) $(CFLAGS) -c -o deterministic512.o deterministic512.c
 
 falcon.o: falcon.c falcon.h config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o falcon.o falcon.c
@@ -130,6 +140,9 @@ tests/test_falcon.o: tests/test_falcon.c falcon.h config.h inner.h fpr.h
 
 tests/test_deterministic1024.o: tests/test_deterministic1024.c tests/test_deterministic1024_kat.h deterministic.h falcon.h config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o tests/test_deterministic1024.o tests/test_deterministic1024.c
+
+tests/test_deterministic512.o: tests/test_deterministic512.c tests/test_deterministic512_kat.h deterministic.h falcon.h config.h inner.h fpr.h
+	$(CC) $(CFLAGS) -c -o tests/test_deterministic512.o tests/test_deterministic512.c
 
 vrfy.o: vrfy.c config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o vrfy.o vrfy.c

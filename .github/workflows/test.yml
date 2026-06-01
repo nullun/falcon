@@ -33,6 +33,8 @@ jobs:
         run: make
       - name: Deterministic-1024 KAT tests
         run: ./tests/test_deterministic1024
+      - name: Deterministic-512 KAT tests
+        run: ./tests/test_deterministic512
       - name: Falcon tests
         run: ./tests/test_falcon
       - name: Speed smoke test
