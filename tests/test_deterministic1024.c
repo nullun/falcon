@@ -4,14 +4,14 @@
 
 #include "../falcon.h"
 #include "../deterministic.h"
-#include "test_deterministic_kat.h"
+#include "test_deterministic1024_kat.h"
 
 // number of KATs for compressed format
 #define NUM_KATS 512
 // number of KATs for converting compressed to CT format
 #define NUM_KATS_CT 32
 
-// enable in order to generate KATs (pipe output to test_deterministic_kat.h)
+// enable in order to generate KATs (pipe output to test_deterministic1024_kat.h)
 // #define GENERATE_KATS 1
 
 // Copied from test_falcon.c
