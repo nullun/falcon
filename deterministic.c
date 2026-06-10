@@ -85,6 +85,10 @@ int falcon_det1024_convert_compressed_to_ct(void *sig_ct,
 	int16_t coeffs[1 << FALCON_DET1024_LOGN];
 	size_t v;
 
+	if (sig_compressed_len < 2) {
+		return FALCON_ERR_BADSIG;
+	}
+
 	if (((uint8_t*)sig_compressed)[0] != FALCON_DET1024_SIG_COMPRESSED_HEADER) {
 		return FALCON_ERR_BADSIG;
 	}
@@ -93,6 +97,12 @@ int falcon_det1024_convert_compressed_to_ct(void *sig_ct,
 	v = Zf(comp_decode)(coeffs, FALCON_DET1024_LOGN, ((uint8_t*)sig_compressed)+2, sig_compressed_len-2);
 	if (v == 0) {
 		return FALCON_ERR_SIZE;
+	}
+
+	// Reject trailing bytes, matching the exact-consumption check
+	// that falcon_verify applies to compressed signatures.
+	if (v != sig_compressed_len-2) {
+		return FALCON_ERR_BADSIG;
 	}
 
 	uint8_t *sig = sig_ct;
@@ -133,12 +143,11 @@ int falcon_det1024_verify_compressed(const void *sig, size_t sig_len,
 	}
 
 	// Add back the salt; drop the version byte.
-	size_t salted_sig_len = sig_len + 40 - 1;
-
-	if (salted_sig_len > FALCON_DET1024_SALTED_SIG_COMPRESSED_MAXSIZE){
+	if (sig_len - 1 > FALCON_DET1024_SALTED_SIG_COMPRESSED_MAXSIZE - 40) {
 		return FALCON_ERR_BADSIG;
 	}
 
+	size_t salted_sig_len = sig_len + 40 - 1;
 
 	falcon_det1024_resalt(salted_sig, sig, sig_len);
 
