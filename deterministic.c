@@ -22,7 +22,7 @@ int falcon_det1024_keygen(shake256_context *rng, void *privkey, void *pubkey) {
 }
 
 // Domain separator used to construct the fixed versioned salt string.
-uint8_t falcon_det1024_salt_rest[38] = {"FALCON_DET"};
+static const uint8_t falcon_det1024_salt_rest[38] = {"FALCON_DET"};
 
 // Construct the fixed salt for a given version.
 void falcon_det1024_write_salt(uint8_t dst[40], uint8_t salt_version) {
