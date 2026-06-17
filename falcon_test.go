@@ -3,14 +3,13 @@ package falcon
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha3"
 	"encoding/hex"
 	"fmt"
 	mathrand "math/rand"
 	"strings"
 	"testing"
 	"time"
-
-	"golang.org/x/crypto/sha3"
 )
 
 var kats = []string{
@@ -49,7 +48,7 @@ var kats = []string{
 }
 
 func testKAT(t *testing.T, msgLen int) {
-	msgrng := sha3.NewShake256()
+	msgrng := sha3.NewSHAKE256()
 	fmt.Fprintf(msgrng, "msg-%04d", msgLen)
 	msg := make([]byte, msgLen)
 	msgrng.Read(msg)
