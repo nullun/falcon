@@ -421,3 +421,47 @@ func BenchmarkFalconVerify(b *testing.B) {
 		pk.Verify(sigs[i], strs[i][:])
 	}
 }
+
+func TestFalconMalformedSignatures(t *testing.T) {
+	seed := make([]byte, 64)
+	rand.Read(seed)
+
+	pub, priv, err := GenerateKey(seed)
+	if err != nil {
+		t.Fatalf("failed to generate keys. err message: %s", err)
+	}
+
+	msg := make([]byte, 64)
+	rand.Read(msg)
+
+	sig, err := priv.SignCompressed(msg)
+	if err != nil {
+		t.Fatalf("failed to sign message. err message: %s", err)
+	}
+
+	// A signature shorter than the 2-byte header and salt-version prefix must be rejected.
+	for _, short := range []CompressedSignature{nil, {}, sig[:0], sig[:1]} {
+		err = pub.Verify(short, msg)
+		if err == nil {
+			t.Fatalf("expected verify to fail on %d-byte signature", len(short))
+		}
+
+		_, err = short.ConvertToCT()
+		if err == nil {
+			t.Fatalf("expected ConvertToCT to fail on %d-byte signature", len(short))
+		}
+	}
+
+	// A valid signature with trailing bytes appended must be rejected.
+	trailing := append(append(CompressedSignature{}, sig...), 0)
+
+	err = pub.Verify(trailing, msg)
+	if err == nil {
+		t.Fatalf("expected verify to fail on signature with trailing bytes")
+	}
+
+	_, err = trailing.ConvertToCT()
+	if err == nil {
+		t.Fatalf("expected ConvertToCT to fail on signature with trailing bytes")
+	}
+}

@@ -119,6 +119,10 @@ func (sk *PrivateKey) SignCompressed(msg []byte) (CompressedSignature, error) {
 func (sig *CompressedSignature) ConvertToCT() (CTSignature, error) {
 	sigCT := CTSignature{}
 
+	if len(*sig) < 2 {
+		return CTSignature{}, fmt.Errorf("signature too short: %w", ErrConvertFail)
+	}
+
 	r := C.falcon_det1024_convert_compressed_to_ct(unsafe.Pointer(&sigCT[0]), unsafe.Pointer(&(*sig)[0]), C.size_t(len(*sig)))
 	if r != 0 {
 		return CTSignature{}, fmt.Errorf("error code %d: %w", int(r), ErrConvertFail)
