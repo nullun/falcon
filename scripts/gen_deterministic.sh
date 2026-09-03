@@ -19,53 +19,87 @@
 # "unexpand" afterwards, so the generated files keep the tab indentation used
 # throughout the rest of the tree.
 #
-# Usage: gen_deterministic.sh [CC] [OUTDIR] N...
-#   CC      C compiler to use as the preprocessor (default: cc)
-#   OUTDIR  directory to write the generated files into (default: the
-#           repository root; a relative path is interpreted relative to it)
+# POSIX sh, plus "mktemp -d TEMPLATE" (not in POSIX, but in GNU, BSD and
+# busybox mktemp).
+#
+# Usage: gen_deterministic.sh CC OUTDIR N...
+#   CC      C compiler to use as the preprocessor, e.g. cc
+#   OUTDIR  directory to write the generated files into; a relative path is
+#           interpreted relative to the repository root
 #   N...    Falcon parameters n to generate, e.g. "1024 512"; the Makefile
 #           passes a single n to regenerate one file at a time, which keeps
 #           the per-file rules race-free under "make -j"
 set -eu
 
+[ $# -ge 3 ] || { echo "usage: $0 CC OUTDIR N..." >&2; exit 2; }
+CC="$1"
+OUT="$2"
+shift 2
+SEEN_N=' '
+for n in "$@"; do
+	case "$n" in *[!0-9]* | '' | 0*)
+		echo "$0: n must be a positive integer, not '$n'" >&2; exit 2
+	esac
+	case "$SEEN_N" in *" $n "*)
+		echo "$0: duplicate n '$n'" >&2; exit 2
+	esac
+	SEEN_N="$SEEN_N$n "
+done
+
 # The template lives in the repository root, one level above this script.
 # Work from there so the script behaves the same wherever it is invoked from.
 cd "$(dirname "$0")/.."
 
-CC="${1:-cc}"
-OUT="${2:-.}"
 IN="deterministic.c.tmpl"
 BANNER='/* GENERATED from deterministic.c.tmpl -- DO NOT EDIT. Run "make gen" to regenerate. */'
 
-emit() { # $1 = DET_N value, $2 = output file
+# Reject directory targets before generating anything. Without this check, mv
+# treats one as a destination directory, puts the generated file inside it,
+# and reports success without replacing the requested path.
+for n in "$@"; do
+	if [ -d "$OUT/deterministic$n.c" ]; then
+		echo "$0: output is a directory: '$OUT/deterministic$n.c'" >&2
+		exit 2
+	fi
+done
+
+# Use a directory on the destination filesystem so completed outputs can be
+# moved into place atomically.
+GEN_TMPDIR=$(mktemp -d "$OUT/.falcon-det-gen.XXXXXX")
+trap 'rm -rf "$GEN_TMPDIR"' 0
+# The signal traps exit so the EXIT trap above cleans up and the script stops
+# instead of carrying on with its working directory already removed.
+trap 'exit 1' HUP INT TERM
+
+# Build deterministic<n>.c for DET_N = $1 under $GEN_TMPDIR. Call it as a plain
+# statement: inside "if" or an && / || list "set -e" is suspended, and a failing
+# stage would go unnoticed.
+generate() {
+	echo "generating deterministic$1.c from $IN"
+	STAGED="$GEN_TMPDIR/deterministic$1.c"
 	{
 		printf '%s\n' "$BANNER"
 		# Verbatim section: lines between the two markers (exclusive).
 		awk '/__FALCON_DET_EXPAND__/{exit} v; /__FALCON_DET_VERBATIM__/{v=1}' "$IN"
-		# Expanded section: everything after the EXPAND marker. Tabs are
-		# expanded to 8 spaces first so indentation survives the C
-		# preprocessor (which collapses each tab to a single space), the
-		# body is macro-expanded, the line markers cpp emits are stripped
-		# with grep, and unexpand restores the tab indentation. -C keeps
-		# comments, no -P so blank lines survive. -ffreestanding stops
-		# gcc on glibc systems from pre-including <stdc-predef.h>, whose
-		# comments -C would otherwise copy into the output.
-		awk 'e; /__FALCON_DET_EXPAND__/{e=1}' "$IN" \
-			| expand -t 8 \
-			| "$CC" -E -C -ffreestanding -DDET_N="$1" -x c - \
-			| grep -vE '^# [0-9]' \
-			| unexpand
-	} > "$2"
+	} > "$STAGED"
+	# Expanded section: everything after the EXPAND marker. -C keeps
+	# comments, no -P so blank lines survive, and grep strips the line
+	# markers cpp emits. -ffreestanding stops gcc on glibc systems from
+	# pre-including <stdc-predef.h>, whose comments -C would otherwise copy
+	# into the output. Each stage is a separate command because POSIX sh
+	# has no pipefail.
+	awk 'e; /__FALCON_DET_EXPAND__/{e=1}' "$IN" > "$GEN_TMPDIR/body"
+	expand -t 8 "$GEN_TMPDIR/body" > "$GEN_TMPDIR/expanded"
+	"$CC" -E -C -ffreestanding -DDET_N="$1" -x c "$GEN_TMPDIR/expanded" > "$GEN_TMPDIR/preprocessed"
+	grep -vE '^# [0-9]' "$GEN_TMPDIR/preprocessed" > "$GEN_TMPDIR/filtered"
+	unexpand "$GEN_TMPDIR/filtered" >> "$STAGED"
 }
 
-# The parameters n to generate follow CC and OUTDIR (e.g. 1024 512); each
-# produces deterministic<n>.c. The list is supplied by the caller so this
-# script has no built-in knowledge of which parameter sets exist.
-if [ $# -ge 2 ]; then
-	shift 2
-else
-	set --
-fi
+# Generate every file before moving any into place, so a generation failure
+# leaves all the existing files untouched. Install them together with one mv
+# invocation; each individual replacement is atomic because GEN_TMPDIR is on
+# the destination filesystem.
 for n in "$@"; do
-	emit "$n" "$OUT/deterministic$n.c"
+	generate "$n"
 done
+mv "$GEN_TMPDIR"/deterministic*.c "$OUT"
