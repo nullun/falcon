@@ -733,8 +733,22 @@ Zf(complete_private)(int8_t *G,
 {
 	size_t u, n;
 	uint16_t *t1, *t2;
+	uint32_t sqn;
 
 	n = (size_t)1 << logn;
+
+	/*
+	 * Key generation enforces ||(f,g)||^2 <= (1.17^2)*q = 16822.41;
+	 * a larger (f,g) may make the signature generation loop forever.
+	 */
+	sqn = 0;
+	for (u = 0; u < n; u ++) {
+		sqn += (uint32_t)(f[u] * f[u] + g[u] * g[u]);
+	}
+	if (sqn > 16822) {
+		return 0;
+	}
+
 	t1 = (uint16_t *)tmp;
 	t2 = t1 + n;
 	for (u = 0; u < n; u ++) {

@@ -612,7 +612,8 @@ int Zf(compute_public)(uint16_t *h,
  *
  * The tmp[] array must have room for at least 4*2^logn bytes.
  *
- * Returned value is 1 in success, 0 on error (f not invertible).
+ * Returned value is 1 in success, 0 on error (f not invertible, or
+ * (f,g) larger than the bound enforced by key pair generation).
  * tmp[] must have 16-bit alignment.
  */
 int Zf(complete_private)(int8_t *G,
