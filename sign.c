@@ -895,11 +895,10 @@ do_sign_dyn(samplerZ samp, void *samp_ctx, int16_t *s2,
 	const uint16_t *hm, unsigned logn, fpr *restrict tmp)
 {
 	size_t n, u;
-	fpr *t0, *t1, *tx, *ty;
+	fpr *t0, *t1;
 	fpr *b00, *b01, *b10, *b11, *g00, *g01, *g11;
 	fpr ni;
-	uint32_t sqn, ng;
-	int16_t *s1tmp, *s2tmp;
+	int16_t *z0, *z1, *s1tmp, *s2tmp;
 
 	n = MKN(logn);
 
@@ -1009,61 +1008,18 @@ do_sign_dyn(samplerZ samp, void *samp_ctx, int16_t *s2,
 		t0, t1, g00, g01, g11, logn, logn, t1 + n);
 
 	/*
-	 * We arrange the layout back to:
-	 *     b00 b01 b10 b11 t0 t1
-	 *
-	 * We did not conserve the matrix basis, so we must recompute
-	 * it now.
+	 * The sampled vector (z0,z1) has integer coefficients; we
+	 * recover them, then compute the lattice point (s1,s2) with
+	 * integer computations modulo q.
 	 */
-	b00 = tmp;
-	b01 = b00 + n;
-	b10 = b01 + n;
-	b11 = b10 + n;
-	memmove(b11 + n, t0, n * 2 * sizeof *t0);
-	t0 = b11 + n;
-	t1 = t0 + n;
-	smallints_to_fpr(b01, f, logn);
-	smallints_to_fpr(b00, g, logn);
-	smallints_to_fpr(b11, F, logn);
-	smallints_to_fpr(b10, G, logn);
-	Zf(FFT)(b01, logn);
-	Zf(FFT)(b00, logn);
-	Zf(FFT)(b11, logn);
-	Zf(FFT)(b10, logn);
-	Zf(poly_neg)(b01, logn);
-	Zf(poly_neg)(b11, logn);
-	tx = t1 + n;
-	ty = tx + n;
-
-	/*
-	 * Get the lattice point corresponding to that tiny vector.
-	 */
-	memcpy(tx, t0, n * sizeof *t0);
-	memcpy(ty, t1, n * sizeof *t1);
-	Zf(poly_mul_fft)(tx, b00, logn);
-	Zf(poly_mul_fft)(ty, b10, logn);
-	Zf(poly_add)(tx, ty, logn);
-	memcpy(ty, t0, n * sizeof *t0);
-	Zf(poly_mul_fft)(ty, b01, logn);
-
-	memcpy(t0, tx, n * sizeof *tx);
-	Zf(poly_mul_fft)(t1, b11, logn);
-	Zf(poly_add)(t1, ty, logn);
 	Zf(iFFT)(t0, logn);
 	Zf(iFFT)(t1, logn);
-
-	s1tmp = (int16_t *)tx;
-	sqn = 0;
-	ng = 0;
+	z0 = (int16_t *)(t1 + n);
+	z1 = z0 + n;
 	for (u = 0; u < n; u ++) {
-		int32_t z;
-
-		z = (int32_t)hm[u] - (int32_t)fpr_rint(t0[u]);
-		sqn += (uint32_t)(z * z);
-		ng |= sqn;
-		s1tmp[u] = (int16_t)z;
+		z0[u] = (int16_t)fpr_rint(t0[u]);
+		z1[u] = (int16_t)fpr_rint(t1[u]);
 	}
-	sqn |= -(ng >> 31);
 
 	/*
 	 * With "normal" degrees (e.g. 512 or 1024), it is very
@@ -1075,10 +1031,10 @@ do_sign_dyn(samplerZ samp, void *samp_ctx, int16_t *s2,
 	 * hm[] for the next iteration.
 	 */
 	s2tmp = (int16_t *)tmp;
-	for (u = 0; u < n; u ++) {
-		s2tmp[u] = (int16_t)-fpr_rint(t1[u]);
-	}
-	if (Zf(is_short_half)(sqn, s2tmp, logn)) {
+	s1tmp = s2tmp + n;
+	if (Zf(complete_signature)(s1tmp, s2tmp, z0, z1,
+		f, g, F, G, hm, logn, (uint8_t *)(s1tmp + n)))
+	{
 		memcpy(s2, s2tmp, n * sizeof *s2);
 		memcpy(tmp, s1tmp, n * sizeof *s1tmp);
 		return 1;

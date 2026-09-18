@@ -620,6 +620,25 @@ int Zf(complete_private)(int8_t *G,
 	unsigned logn, uint8_t *tmp);
 
 /*
+ * Compute the signature vector (s1,s2) = (hm,0) - (z0,z1)*B from the
+ * sampled integer vector (z0,z1) and the private key basis
+ * B = [[g, -f], [G, -F]], i.e. s1 = hm - (z0*g + z1*G) and
+ * s2 = z0*f + z1*F. Computations are done modulo q; the coefficients
+ * of z0 and z1 MUST be in the -q/2..+q/2 range.
+ *
+ * Returned value is 1 if the aggregate vector (s1,s2) is short enough
+ * to be an acceptable signature, 0 otherwise.
+ *
+ * The tmp[] array must have room for at least 8*2^logn bytes.
+ * tmp[] must have 16-bit alignment.
+ */
+int Zf(complete_signature)(int16_t *s1, int16_t *s2,
+	const int16_t *z0, const int16_t *z1,
+	const int8_t *f, const int8_t *g,
+	const int8_t *F, const int8_t *G,
+	const uint16_t *hm, unsigned logn, uint8_t *tmp);
+
+/*
  * Test whether a given polynomial is invertible modulo phi and q.
  * Polynomial coefficients are small integers.
  *

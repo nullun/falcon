@@ -773,6 +773,78 @@ Zf(complete_private)(int8_t *G,
 
 /* see inner.h */
 int
+Zf(complete_signature)(int16_t *s1, int16_t *s2,
+	const int16_t *z0, const int16_t *z1,
+	const int8_t *f, const int8_t *g,
+	const int8_t *F, const int8_t *G,
+	const uint16_t *hm, unsigned logn, uint8_t *tmp)
+{
+	size_t u, n;
+	uint16_t *t0, *t1, *t2, *t3;
+
+	n = (size_t)1 << logn;
+	t0 = (uint16_t *)tmp;
+	t1 = t0 + n;
+	t2 = t1 + n;
+	t3 = t2 + n;
+	for (u = 0; u < n; u ++) {
+		t0[u] = (uint16_t)mq_conv_small(z0[u]);
+		t1[u] = (uint16_t)mq_conv_small(z1[u]);
+		t2[u] = (uint16_t)mq_conv_small(f[u]);
+		t3[u] = (uint16_t)mq_conv_small(F[u]);
+	}
+	mq_NTT(t0, logn);
+	mq_NTT(t1, logn);
+	mq_poly_tomonty(t0, logn);
+	mq_poly_tomonty(t1, logn);
+
+	/*
+	 * Compute s2 = z0*f + z1*F mod phi mod q (in t2[]).
+	 */
+	mq_NTT(t2, logn);
+	mq_NTT(t3, logn);
+	mq_poly_montymul_ntt(t2, t0, logn);
+	mq_poly_montymul_ntt(t3, t1, logn);
+	for (u = 0; u < n; u ++) {
+		t2[u] = (uint16_t)mq_add(t2[u], t3[u]);
+	}
+	mq_iNTT(t2, logn);
+	for (u = 0; u < n; u ++) {
+		int32_t w;
+
+		w = (int32_t)t2[u];
+		w -= (int32_t)(Q & -(((Q >> 1) - (uint32_t)w) >> 31));
+		s2[u] = (int16_t)w;
+	}
+
+	/*
+	 * Compute s1 = hm - (z0*g + z1*G) mod phi mod q (in t2[]).
+	 */
+	for (u = 0; u < n; u ++) {
+		t2[u] = (uint16_t)mq_conv_small(g[u]);
+		t3[u] = (uint16_t)mq_conv_small(G[u]);
+	}
+	mq_NTT(t2, logn);
+	mq_NTT(t3, logn);
+	mq_poly_montymul_ntt(t2, t0, logn);
+	mq_poly_montymul_ntt(t3, t1, logn);
+	for (u = 0; u < n; u ++) {
+		t2[u] = (uint16_t)mq_add(t2[u], t3[u]);
+	}
+	mq_iNTT(t2, logn);
+	for (u = 0; u < n; u ++) {
+		int32_t w;
+
+		w = (int32_t)mq_sub(hm[u], t2[u]);
+		w -= (int32_t)(Q & -(((Q >> 1) - (uint32_t)w) >> 31));
+		s1[u] = (int16_t)w;
+	}
+
+	return Zf(is_short)(s1, s2, logn);
+}
+
+/* see inner.h */
+int
 Zf(is_invertible)(
 	const int16_t *s2, unsigned logn, uint8_t *tmp)
 {
