@@ -1,1 +1,12 @@
+# Build products.
 *.o
+tests/test_deterministic1024
+tests/test_deterministic512
+tests/test_det_generic
+tests/test_falcon
+tests/speed
+tests/kat_tool
+
+# The exhaustive KAT sets are generated on demand by "make kat-full";
+# only the core sets in kat/ are committed. See kat/README.md.
+kat/full/

@@ -37,6 +37,8 @@ jobs:
         run: ./tests/test_deterministic512
       - name: Deterministic vs generic API cross-check
         run: ./tests/test_det_generic
+      - name: Portable KAT check
+        run: make check-kat
       - name: Falcon tests
         run: ./tests/test_falcon
       - name: Speed smoke test

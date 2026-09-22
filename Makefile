@@ -53,10 +53,10 @@ LIBS = #-lm
 
 OBJ = codec.o common.o deterministic1024.o deterministic512.o falcon.o fft.o fpr.o keygen.o rng.o shake.o sign.o vrfy.o
 
-all: tests/test_deterministic1024 tests/test_deterministic512 tests/test_det_generic tests/test_falcon tests/speed
+all: tests/test_deterministic1024 tests/test_deterministic512 tests/test_det_generic tests/test_falcon tests/speed tests/kat_tool
 
 clean:
-	-rm -f $(OBJ) tests/test_deterministic1024 tests/test_deterministic1024.o tests/test_deterministic512 tests/test_deterministic512.o tests/test_det_generic tests/test_det_generic.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o
+	-rm -f $(OBJ) tests/test_deterministic1024 tests/test_deterministic1024.o tests/test_deterministic512 tests/test_deterministic512.o tests/test_det_generic tests/test_det_generic.o tests/test_falcon tests/test_falcon.o tests/speed tests/speed.o tests/kat_tool tests/kat_tool.o
 
 # The deterministic<n>.c sources are generated from the single template
 # deterministic.c.tmpl and committed to the repository, so a normal build just
@@ -67,6 +67,24 @@ clean:
 # clone git may check it out with a newer timestamp than them and a plain
 # "make" must never rewrite committed sources. "make check-gen" verifies the
 # committed sources are in sync with the template (useful in CI).
+.PHONY: kat check-kat kat-full
+# The portable KAT files in kat/ are committed. "make kat" regenerates them,
+# "make check-kat" re-derives every record and compares it against the file,
+# and "make kat-full" writes the exhaustive 512-record sets to kat/full/
+# (not committed; see kat/README.md).
+kat: tests/kat_tool
+	./tests/kat_tool gen 512 core > kat/falcon_det512.rsp
+	./tests/kat_tool gen 1024 core > kat/falcon_det1024.rsp
+
+check-kat: tests/kat_tool
+	./tests/kat_tool check kat/falcon_det512.rsp
+	./tests/kat_tool check kat/falcon_det1024.rsp
+
+kat-full: tests/kat_tool
+	mkdir -p kat/full
+	./tests/kat_tool gen 512 full > kat/full/falcon_det512.rsp
+	./tests/kat_tool gen 1024 full > kat/full/falcon_det1024.rsp
+
 .PHONY: gen check-gen
 gen: deterministic.c.tmpl scripts/gen_deterministic.sh
 	sh scripts/gen_deterministic.sh "$(CC)" . 1024 512
@@ -95,6 +113,9 @@ tests/test_deterministic512: tests/test_deterministic512.o $(OBJ)
 
 tests/test_det_generic: tests/test_det_generic.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_det_generic tests/test_det_generic.o $(OBJ) $(LIBS)
+
+tests/kat_tool: tests/kat_tool.o $(OBJ)
+	$(LD) $(LDFLAGS) -o tests/kat_tool tests/kat_tool.o $(OBJ) $(LIBS)
 
 tests/test_falcon: tests/test_falcon.o $(OBJ)
 	$(LD) $(LDFLAGS) -o tests/test_falcon tests/test_falcon.o $(OBJ) $(LIBS)
@@ -140,6 +161,9 @@ tests/speed.o: tests/speed.c falcon.h
 
 tests/test_falcon.o: tests/test_falcon.c falcon.h config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o tests/test_falcon.o tests/test_falcon.c
+
+tests/kat_tool.o: tests/kat_tool.c tests/test_deterministic512_kat.h tests/test_deterministic1024_kat.h deterministic.h falcon.h
+	$(CC) $(CFLAGS) -c -o tests/kat_tool.o tests/kat_tool.c
 
 tests/test_deterministic1024.o: tests/test_deterministic1024.c tests/test_deterministic1024_kat.h deterministic.h falcon.h config.h inner.h fpr.h
 	$(CC) $(CFLAGS) -c -o tests/test_deterministic1024.o tests/test_deterministic1024.c
